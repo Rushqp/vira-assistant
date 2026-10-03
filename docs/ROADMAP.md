@@ -92,7 +92,7 @@ Dates are shown in **Gregorian or Jalali (Shamsi)** — switchable by the user i
 | Structured output | Ollama `format` (JSON Schema) | Sentence → `{intent, datetime, amount, ...}`; more reliable than tool calling on small models |
 | Speech-to-text | **faster-whisper** (CTranslate2, int8) | Persian + English voice transcription on CPU |
 | Audio conversion | ffmpeg | Telegram OGG/Opus → WAV |
-| Scheduling | **APScheduler** + SQLAlchemy JobStore | Reminders and nightly report; survive restarts |
+| Scheduling | **APScheduler** (in-memory) | A 20-second job sends due alerts stored in SQLite (the DB is the source of truth, so nothing is lost on restart) + daily jobs |
 | Database | **SQLite** + SQLAlchemy 2 (async, aiosqlite) | No extra service; single file on a volume |
 | Migrations | Alembic | Schema changes across versions without data loss |
 | Dual calendar | **jdatetime** + `zoneinfo` (Asia/Tehran) | Gregorian ↔ Jalali input/output; display follows user setting |
@@ -128,14 +128,19 @@ Selected with one variable: `PROFILE=lite | standard | full | remote` (or overri
 ### 6.1 Chat (Q&A)
 - Answers simple questions in **Persian or English** using the local LLM with short-term memory (last 10 messages)
 - **New Chat** button clears the conversation context and starts a fresh session
+- **Previous chats** (🗂 Chats): list the newest 20 chats, continue one (recap of the last 3 exchanges) or delete it
 - Built-in tools without LLM: calculator, Gregorian ↔ Jalali conversion, "what's today's date?" (in both calendars)
 
 ### 6.2 Reminders
 - Create from free text or a step-by-step form
 - **Separate event time and notify time**: "doctor tomorrow at 2, remind me in the morning" → event 14:00, notify 09:00
-- Recurring: daily, weekly, monthly (e.g. "every Saturday at 8")
+- Recurring: daily, weekly, monthly (e.g. "every Saturday at 8"); monthly follows the selected calendar
+- Missing details are asked: am/pm for hours 1–12, the time, and **when to notify** if not said
+  (multi-select: at the time / 15 min / 1 hour before / morning of the day / night before / custom)
+- **⭐ Important** decided by the LLM (keyword fallback), editable on the confirmation card
 - Notification buttons: [✅ Done] [⏰ +10 min] [⏰ +1 hour]
 - List / edit / delete
+- Morning briefing (08:00): today's reminders, important ones first
 
 ### 6.3 Expenses
 - Multiple expenses in one message → multiple records
@@ -148,7 +153,7 @@ Selected with one variable: `PROFILE=lite | standard | full | remote` (or overri
 - Total + per-category breakdown + largest expense
 - **Excel** export (formatted, with totals) and **CSV**
 - Automatic nightly report at a configurable time (today's expenses + tomorrow's reminders)
-- Optional morning briefing: today's tasks and reminders
+- Optional morning briefing: today's tasks and reminders (reminders part done in v0.3)
 
 ### 6.5 Notes & To-Dos
 - Quick notes with tags and search
@@ -169,9 +174,9 @@ Selected with one variable: `PROFILE=lite | standard | full | remote` (or overri
 ## 7. Main Menu (Reply Keyboard)
 
 ```
-┌──────────────────────┬──────────────────────┐
-│     💬 New Chat       │   ⏰ New Reminder     │
-├──────────────┬───────┴───────┬──────────────┤
+┌──────────────┬───────────────┬──────────────┐
+│ 💬 New Chat   │   🗂 Chats     │ ⏰ New Reminder│
+├──────────────┼───────────────┼──────────────┤
 │ 💰 Add Expense│ 📊 Today Report│ 📅 Month Report│
 ├──────────────┼───────────────┼──────────────┤
 │ 📋 Reminders  │ ✅ Today To-Dos │ 📝 Notes      │
@@ -180,11 +185,11 @@ Selected with one variable: `PROFILE=lite | standard | full | remote` (or overri
 └──────────────────────┴──────────────────────┘
 ```
 
-- **New Chat** clears the conversation context and starts a fresh Q&A session.
+- **New Chat** clears the conversation context and starts a fresh Q&A session; **Chats** continues an older one.
 - Each button either opens a multi-step form (FSM) or shows a result directly.
 - The user can send **free text or voice (Persian or English) at any time** without pressing a button.
 - Per-item actions use **Inline Keyboards** under each message.
-- Commands: `/start` `/help` `/menu` `/new` `/cancel` `/backup`
+- Commands: `/start` `/help` `/menu` `/new` `/chats` `/cancel` `/backup`
 - All UI strings live in one file (`app/texts.py`) so wording can be changed in one place.
 
 ---
@@ -227,14 +232,14 @@ message ─► (voice? → STT) ─► normalize ─► rule-based parser
 | Table | Main fields |
 |---|---|
 | `settings` | key, value |
-| `reminders` | id, text, event_at, notify_at, repeat_rule, status, created_at |
+| `reminders` | id, text, raw_text, event_at, all_day, repeat_rule, alert_specs, important, status, created_at |
+| `reminder_alerts` | id, reminder_id, notify_at, kind (spec / extra), sent_at — several per reminder |
 | `expenses` | id, amount, category_id, description, quantity, unit, spent_at, raw_text |
 | `categories` | id, name, emoji, is_default |
 | `notes` | id, text, tags, created_at |
 | `todos` | id, text, due_date, done, created_at |
-| `chat_sessions` | id, started_at, ended_at |
+| `chat_sessions` | id, title, started_at, updated_at, ended_at |
 | `chat_history` | id, session_id, role, content, created_at (capped) |
-| `apscheduler_jobs` | managed by APScheduler |
 
 All timestamps are stored in **UTC** and displayed in the user's timezone (default Asia/Tehran) using the **selected calendar** (Gregorian or Jalali).
 
@@ -249,11 +254,12 @@ vira-assistant/
 │   ├── config.py               # pydantic-settings
 │   ├── texts.py                # all English UI strings
 │   ├── bot/
-│   │   ├── handlers/           # start, menu, chat, reminders, expenses, reports, notes, voice, settings, fallback
+│   │   ├── handlers/           # start, menu, chat, chats, reminders, expenses, reports, notes, voice, settings, fallback
 │   │   ├── keyboards/          # reply.py, inline.py
+│   │   ├── views.py            # message rendering (reminder cards, notifications, briefing)
 │   │   ├── streaming.py        # streamed LLM answers via message edits
 │   │   ├── states.py           # FSM states
-│   │   └── middlewares/        # owner_only.py, logging.py, db.py
+│   │   └── middlewares/        # owner_only.py, logging.py, db.py, menu_reset.py
 │   ├── core/
 │   │   ├── normalizer.py       # fa/en digits, number words, ZWNJ
 │   │   ├── parsers/            # datetime_parser.py, amount_parser.py, rules.py (fa + en)
@@ -263,7 +269,7 @@ vira-assistant/
 │   │   ├── prompts/            # system/intent prompts (bilingual)
 │   │   └── schemas.py          # intent JSON schemas
 │   ├── stt/whisper.py
-│   ├── services/               # reminders, expenses, reports, export, notes, todos, chat
+│   ├── services/               # reminders, reminder_ai, expenses, reports, export, notes, todos, chat, tools
 │   ├── scheduler/              # jobs.py, setup.py
 │   ├── db/                     # models.py, session.py
 │   └── utils/                  # calendar.py (Gregorian/Jalali), formatting.py
@@ -331,7 +337,7 @@ TELEGRAM_PROXY=             # optional: socks5://host:port
 |---|---|---|
 | **v0.1.0** | Project skeleton, Docker Compose, `/start`, English button menu, owner middleware, SQLite + Alembic, settings (calendar toggle), CI | `docker compose up` starts the bot and the menu appears |
 | **v0.2.0** | Ollama service + profiles, LLM client, chat with short memory + New Chat | Simple Persian and English questions get answers; model switchable via `.env` |
-| **v0.3.0** | Normalizer + fa/en date/time parser (both calendars), reminders (create/list/delete/repeat/snooze), scheduler | "Doctor tomorrow at 2, remind me in the morning" is saved and delivered correctly |
+| **v0.3.0** | Normalizer + fa/en date/time parser (both calendars), reminders (create/list/delete/repeat/snooze), scheduler, morning briefing (reminders), previous chats | "Doctor tomorrow at 2, remind me in the morning" is saved and delivered correctly |
 | **v0.4.0** | Amount parser, expenses (multi-item), categories, daily/monthly reports | The groceries + fuel example creates two correct records |
 | **v0.5.0** | Excel/CSV export, nightly report, morning briefing | Current month's Excel file is received |
 | **v0.6.0** | Voice → text (faster-whisper) | Persian and English voice is processed like text |

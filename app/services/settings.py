@@ -1,5 +1,7 @@
 """User settings stored in the `settings` key/value table."""
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,6 +9,8 @@ from app.config import Calendar
 from app.db.models import Setting
 
 KEY_CALENDAR = "calendar"
+KEY_BRIEFING = "morning_briefing"  # "on" | "off"
+KEY_BRIEFING_LAST = "morning_briefing_last"  # ISO date of the last briefing sent
 
 
 class SettingsService:
@@ -40,3 +44,20 @@ class SettingsService:
         new = Calendar.GREGORIAN if current == Calendar.JALALI else Calendar.JALALI
         await self.set_calendar(new)
         return new
+
+    # --- Morning briefing ---
+
+    async def briefing_enabled(self) -> bool:
+        return (await self.get(KEY_BRIEFING)) != "off"
+
+    async def toggle_briefing(self) -> bool:
+        enabled = not await self.briefing_enabled()
+        await self.set(KEY_BRIEFING, "on" if enabled else "off")
+        return enabled
+
+    async def briefing_sent_on(self) -> date | None:
+        value = await self.get(KEY_BRIEFING_LAST)
+        return date.fromisoformat(value) if value else None
+
+    async def mark_briefing_sent(self, day: date) -> None:
+        await self.set(KEY_BRIEFING_LAST, day.isoformat())

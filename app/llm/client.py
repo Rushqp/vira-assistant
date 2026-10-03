@@ -1,5 +1,7 @@
 """OpenAI-compatible LLM client (works with Ollama, OpenRouter, Gemini, ...)."""
 
+import json
+import re
 from collections.abc import AsyncIterator
 from typing import Literal, TypedDict
 
@@ -67,6 +69,39 @@ class LLMClient:
 
     async def chat(self, messages: list[ChatMessage]) -> str:
         return "".join([piece async for piece in self.stream_chat(messages)])
+
+    async def complete_json(
+        self, messages: list[ChatMessage], schema: dict, name: str = "result"
+    ) -> dict:
+        """Ask for output matching a JSON schema (Ollama structured outputs / OpenAI json_schema).
+
+        Falls back to extracting the first {...} block if the provider ignores the format.
+        """
+        try:
+            response = await self._client.chat.completions.create(
+                model=self.model,
+                messages=messages,  # type: ignore[arg-type]
+                temperature=0,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {"name": name, "schema": schema},
+                },  # type: ignore[arg-type]
+            )
+        except openai.APIConnectionError as exc:
+            raise LLMError("unreachable", str(exc)) from exc
+        except openai.NotFoundError as exc:
+            raise LLMError("model_missing", self.model) from exc
+        except openai.APIError as exc:
+            raise LLMError("failed", str(exc)) from exc
+        content = (response.choices[0].message.content or "") if response.choices else ""
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        try:
+            data = json.loads(match.group() if match else content)
+        except json.JSONDecodeError as exc:
+            raise LLMError("failed", f"invalid JSON: {content[:200]}") from exc
+        if not isinstance(data, dict):
+            raise LLMError("failed", "JSON is not an object")
+        return data
 
     async def check(self) -> bool:
         """Log whether the endpoint is reachable and the model is available. Never raises."""

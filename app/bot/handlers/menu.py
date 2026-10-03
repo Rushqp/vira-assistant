@@ -13,8 +13,6 @@ router = Router(name="menu")
 
 # button label -> (feature name, target version)
 PLANNED: dict[str, tuple[str, str]] = {
-    texts.BTN_NEW_REMINDER: ("Reminders", "v0.3"),
-    texts.BTN_REMINDERS: ("Reminders", "v0.3"),
     texts.BTN_ADD_EXPENSE: ("Expenses", "v0.4"),
     texts.BTN_TODAY_REPORT: ("Reports", "v0.4"),
     texts.BTN_MONTH_REPORT: ("Reports", "v0.4"),

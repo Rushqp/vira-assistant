@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.config import Settings
 from app.llm.client import LLMClient
 from app.services.chat import ChatService
+from app.services.reminders import ReminderService
 from app.services.settings import SettingsService
 
 
@@ -36,5 +37,8 @@ class DbSessionMiddleware(BaseMiddleware):
                 memory=self.config.chat_memory,
                 timezone=self.config.timezone,
                 keep=self.config.chat_keep,
+            )
+            data["reminder_service"] = ReminderService(
+                session, self.config.timezone, self.config.day_times
             )
             return await handler(event, data)

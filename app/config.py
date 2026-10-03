@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.parsers.datetime_parser import DayTimes
+
 
 class Profile(StrEnum):
     LITE = "lite"
@@ -60,6 +62,14 @@ class Settings(BaseSettings):
     stt_enabled: bool = True
     stt_model: str | None = None
 
+    # Reminders: default clock times for words like "morning" / «صبح»
+    morning_time: time = time(9, 0)
+    noon_time: time = time(12, 0)
+    afternoon_time: time = time(16, 0)
+    evening_time: time = time(19, 0)
+    night_time: time = time(22, 0)
+    morning_briefing_time: time = time(8, 0)  # daily list of today's reminders
+
     # Reports
     daily_report_time: time = time(22, 0)
 
@@ -92,6 +102,16 @@ class Settings(BaseSettings):
     @property
     def timezone(self) -> ZoneInfo:
         return ZoneInfo(self.tz)
+
+    @property
+    def day_times(self) -> DayTimes:
+        return DayTimes(
+            morning=self.morning_time,
+            noon=self.noon_time,
+            afternoon=self.afternoon_time,
+            evening=self.evening_time,
+            night=self.night_time,
+        )
 
     @property
     def effective_llm_model(self) -> str:

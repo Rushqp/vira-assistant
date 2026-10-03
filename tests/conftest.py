@@ -1,10 +1,9 @@
 import pytest
 
-from app.bot.handlers import chat, chats, fallback, menu, settings, start
+from app.bot.handlers import chat, chats, fallback, menu, reminders, settings, start
 from app.config import Settings
 from app.db.session import create_engine, create_sessionmaker, run_migrations
-
-OWNER_ID = 1001
+from tests.fakes import OWNER_ID, make_env
 
 
 @pytest.fixture
@@ -30,5 +29,11 @@ def detach_routers():
     """Handler routers are module-level singletons: detach them so each test can build a fresh
     dispatcher."""
     yield
-    for module in (start, settings, menu, chats, chat, fallback):
+    for module in (start, settings, menu, chats, reminders, chat, fallback):
         module.router._parent_router = None
+
+
+@pytest.fixture
+async def env(config, sessionmaker):
+    """Send messages / press buttons through the real dispatcher (fake Telegram + LLM)."""
+    return make_env(config, sessionmaker)

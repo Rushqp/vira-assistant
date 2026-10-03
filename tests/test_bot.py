@@ -19,7 +19,14 @@ def test_main_menu_layout():
 
 def test_every_menu_button_is_handled():
     labels = {b.text for row in main_menu().keyboard for b in row}
-    assert labels == set(PLANNED) | {texts.BTN_SETTINGS, texts.BTN_NEW_CHAT, texts.BTN_CHATS}
+    implemented = {
+        texts.BTN_SETTINGS,
+        texts.BTN_NEW_CHAT,
+        texts.BTN_CHATS,
+        texts.BTN_NEW_REMINDER,
+        texts.BTN_REMINDERS,
+    }
+    assert labels == set(PLANNED) | implemented
 
 
 def test_settings_keyboard_offers_the_other_calendar():
