@@ -1,6 +1,6 @@
 [project]
 name = "vira-assistant"
-version = "0.3.0"
+version = "0.4.0"
 description = "Personal AI assistant on Telegram — reminders, expenses, reports, notes and voice. Local LLM, Persian + English."
 readme = "README.md"
 license = "MIT"

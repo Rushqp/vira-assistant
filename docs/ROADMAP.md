@@ -145,7 +145,11 @@ Selected with one variable: `PROFILE=lite | standard | full | remote` (or overri
 ### 6.3 Expenses
 - Multiple expenses in one message → multiple records
 - Amount, category, description, quantity and unit (e.g. 10 liters)
-- Default categories: Food, Home, Fuel, Transport, Bills, Health, Leisure, Other (editable)
+- Default categories (13): Groceries, Food, Restaurant, Home, Fuel, Transport, Bills, Health, Clothing,
+  Education, Gifts, Leisure, Other — add / delete in Settings
+- Category chosen by keywords → LLM → Other; **corrections are learned** for next time
+- Amount without thousand / million is **always asked** (buttons)
+- Undo right after saving; delete from the day report
 - **Always confirm before saving**, showing the interpreted amount
 
 ### 6.4 Reports
@@ -222,7 +226,9 @@ message ─► (voice? → STT) ─► normalize ─► rule-based parser
 - Absolute dates in **both calendars**: «۱۵ مهر» / "15 Mehr" (Jalali) and "Oct 7" / «۷ اکتبر» (Gregorian) — detected automatically
 - **Amounts (base unit: toman):**
   - «۱۰۰ هزار», «۲ میلیون», «۵۰ تومن» → explicit
-  - Colloquial «۳ تومن» is **ambiguous**; default rule: number < 100 without a unit = million, 100–999 = thousand — the interpreted amount is always shown for confirmation
+  - Colloquial «۳ تومن» is **ambiguous**: an amount below 1000 without thousand / million is asked
+    every time (buttons: 3,000 / 3,000,000) — decided in v0.4
+  - «دو میلیون و پونصد» = 2,500,000 (colloquial remainder after million)
   - Rial/toman base unit configurable in `.env`
 
 ---
@@ -234,8 +240,9 @@ message ─► (voice? → STT) ─► normalize ─► rule-based parser
 | `settings` | key, value |
 | `reminders` | id, text, raw_text, event_at, all_day, repeat_rule, alert_specs, important, status, created_at |
 | `reminder_alerts` | id, reminder_id, notify_at, kind (spec / extra), sent_at — several per reminder |
-| `expenses` | id, amount, category_id, description, quantity, unit, spent_at, raw_text |
-| `categories` | id, name, emoji, is_default |
+| `expenses` | id, amount (whole CURRENCY units), category_id, description, quantity, unit, spent_at, raw_text, created_at |
+| `categories` | id, name, emoji, is_default, position |
+| `category_keywords` | id, keyword (normalized description), category_id — learned from corrections |
 | `notes` | id, text, tags, created_at |
 | `todos` | id, text, due_date, done, created_at |
 | `chat_sessions` | id, title, started_at, updated_at, ended_at |
@@ -254,7 +261,7 @@ vira-assistant/
 │   ├── config.py               # pydantic-settings
 │   ├── texts.py                # all English UI strings
 │   ├── bot/
-│   │   ├── handlers/           # start, menu, chat, chats, reminders, expenses, reports, notes, voice, settings, fallback
+│   │   ├── handlers/           # start, menu, chat, chats, reminders, expenses, reports, categories, notes, voice, settings, fallback
 │   │   ├── keyboards/          # reply.py, inline.py
 │   │   ├── views.py            # message rendering (reminder cards, notifications, briefing)
 │   │   ├── streaming.py        # streamed LLM answers via message edits
@@ -262,14 +269,14 @@ vira-assistant/
 │   │   └── middlewares/        # owner_only.py, logging.py, db.py, menu_reset.py
 │   ├── core/
 │   │   ├── normalizer.py       # fa/en digits, number words, ZWNJ
-│   │   ├── parsers/            # datetime_parser.py, amount_parser.py, rules.py (fa + en)
+│   │   ├── parsers/            # datetime_parser.py, rules.py, amount_parser.py, expense_rules.py (fa + en)
 │   │   └── router.py           # rule vs LLM routing
 │   ├── llm/
 │   │   ├── client.py           # OpenAI-compatible client
 │   │   ├── prompts/            # system/intent prompts (bilingual)
 │   │   └── schemas.py          # intent JSON schemas
 │   ├── stt/whisper.py
-│   ├── services/               # reminders, reminder_ai, expenses, reports, export, notes, todos, chat, tools
+│   ├── services/               # reminders, reminder_ai, expenses, expense_ai, reports, export, notes, todos, chat, tools
 │   ├── scheduler/              # jobs.py, setup.py
 │   ├── db/                     # models.py, session.py
 │   └── utils/                  # calendar.py (Gregorian/Jalali), formatting.py
@@ -348,7 +355,7 @@ TELEGRAM_PROXY=             # optional: socks5://host:port
 
 ## 14. Open Items
 
-1. Final rule for interpreting colloquial "X toman" amounts (default above) — revisit in v0.4
+1. ~~Final rule for interpreting colloquial "X toman" amounts~~ — decided in v0.4: always ask
 2. Publish image to GHCR or build locally only
 3. License (default MIT)
 4. Final model per profile after benchmarking on real hardware

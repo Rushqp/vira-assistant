@@ -1,19 +1,27 @@
 """Message rendering shared by handlers and scheduled jobs.
 
-Reminder cards, notifications and the morning briefing. All functions return Telegram HTML;
-user text (reminder subjects) is escaped here.
+Reminder cards, notifications, the morning briefing, expense cards and reports. All functions
+return Telegram HTML; user text (subjects, descriptions) is escaped here.
 """
 
 import html
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from app import texts
 from app.config import Calendar
 from app.core.parsers.datetime_parser import DayTimes, RepeatRule
-from app.db.models import Reminder
+from app.db.models import Category, Reminder
+from app.services.expenses import ExpenseDraft
 from app.services.reminders import ReminderDraft, from_utc
-from app.utils.calendar import format_date
+from app.services.reports import Report, month_name
+from app.utils.calendar import JALALI_MONTHS, format_date
+from app.utils.formatting import bar, format_money, format_quantity
+
+FULL_GREGORIAN_MONTHS = (
+    "January", "February", "March", "April", "May", "June", "July", "August", "September",
+    "October", "November", "December",
+)  # fmt: skip
 
 
 def format_when(event: datetime, all_day: bool, calendar: Calendar) -> str:
@@ -145,3 +153,122 @@ def briefing(reminders: list[Reminder], now: datetime, tz: ZoneInfo, calendar: C
     if others:
         lines += [texts.BRIEFING_TODAY, *map(item, others)]
     return "\n".join(lines).strip()
+
+
+# --- Expenses ---
+
+
+def expense_card(
+    draft: ExpenseDraft,
+    categories: dict[int, Category],
+    currency: str,
+    calendar: Calendar,
+    today: date,
+) -> str:
+    title = (
+        texts.EXPENSE_CARD_TITLE
+        if len(draft.items) == 1
+        else texts.EXPENSE_CARD_TITLE_MANY.format(count=len(draft.items))
+    )
+    lines = [title, ""]
+    for n, item in enumerate(draft.items, 1):
+        category = categories.get(item.category_id or 0)
+        lines.append(
+            texts.EXPENSE_CARD_ITEM.format(
+                n=n,
+                emoji=category.emoji if category else "❔",
+                description=html.escape(item.description or texts.EXPENSE_NO_DESCRIPTION),
+                quantity=format_quantity(item.quantity, item.unit),
+                amount=format_money(item.amount or 0, currency),
+            )
+        )
+    lines.append("")
+    spent_on = date.fromisoformat(draft.spent_on) if draft.spent_on else today
+    lines.append(texts.EXPENSE_CARD_DATE.format(date=format_date(spent_on, calendar)))
+    if len(draft.items) > 1:
+        lines.append(texts.EXPENSE_CARD_TOTAL.format(amount=format_money(draft.total, currency)))
+    return "\n".join(lines)
+
+
+# --- Reports ---
+
+REPORT_MAX_ITEMS = 20
+
+
+def _report_title(report: Report, calendar: Calendar) -> str:
+    if report.kind == "day":
+        return texts.REPORT_DAY_TITLE.format(date=format_date(report.start, calendar))
+    if report.kind == "week":
+        last = report.end - timedelta(days=1)
+        return texts.REPORT_WEEK_TITLE.format(
+            start=format_date(report.start, calendar, weekday=False),
+            end=format_date(last, calendar, weekday=False),
+        )
+    month, year = month_name(report.start, calendar)
+    names = JALALI_MONTHS["en"] if calendar == Calendar.JALALI else FULL_GREGORIAN_MONTHS
+    return texts.REPORT_MONTH_TITLE.format(month=names[month - 1], year=year)
+
+
+def _comparison(report: Report, currency: str) -> str:
+    previous = report.previous_total
+    if previous == 0:
+        return texts.REPORT_VS_ZERO if report.total else ""
+    change = (report.total - previous) / previous * 100
+    return texts.REPORT_VS_PREVIOUS.format(
+        arrow="▲" if change >= 0 else "▼",
+        percent=f"{abs(change):.0f}",
+        previous=f"{texts.REPORT_PREVIOUS[report.kind]}: {format_money(previous, currency)}",
+    )
+
+
+def report(report: Report, currency: str, calendar: Calendar) -> str:
+    """Total, comparison, per-category bars, largest expense and (for days) the item list."""
+    lines = [_report_title(report, calendar), ""]
+    if not report.expenses:
+        lines.append(texts.REPORT_EMPTY)
+        if report.previous_total:
+            lines.append(texts.REPORT_TOTAL.format(amount=format_money(0, currency)))
+        return "\n".join(lines)
+
+    lines.append(
+        texts.REPORT_TOTAL.format(amount=format_money(report.total, currency))
+        + _comparison(report, currency)
+    )
+    if report.kind != "day":
+        average = report.total // report.days_elapsed
+        lines.append(texts.REPORT_AVERAGE.format(amount=format_money(average, currency)))
+    lines.append("")
+    for entry in report.by_category:
+        lines.append(
+            texts.REPORT_CATEGORY.format(
+                emoji=entry.category.emoji,
+                name=html.escape(entry.category.name),
+                bar=bar(entry.share),
+                percent=f"{entry.share * 100:.0f}",
+                amount=format_money(entry.total, currency),
+            )
+        )
+    largest = report.largest
+    if largest and len(report.expenses) > 1:
+        lines += [
+            "",
+            texts.REPORT_LARGEST.format(
+                description=html.escape(largest.description or texts.EXPENSE_NO_DESCRIPTION),
+                amount=format_money(largest.amount, currency),
+            ),
+        ]
+    if report.kind == "day":
+        lines += ["", texts.REPORT_ITEMS]
+        for n, expense in enumerate(report.expenses[:REPORT_MAX_ITEMS], 1):
+            lines.append(
+                texts.REPORT_ITEM.format(
+                    n=n,
+                    emoji=expense.category.emoji,
+                    description=html.escape(expense.description or texts.EXPENSE_NO_DESCRIPTION),
+                    quantity=format_quantity(expense.quantity, expense.unit),
+                    amount=format_money(expense.amount, currency),
+                )
+            )
+        if len(report.expenses) > REPORT_MAX_ITEMS:
+            lines.append(texts.REPORT_MORE.format(count=len(report.expenses) - REPORT_MAX_ITEMS))
+    return "\n".join(lines)

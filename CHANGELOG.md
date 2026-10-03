@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-10-04
+
+### Added
+- 💰 **Expenses** from free text (Persian or English) or the 💰 Add Expense form
+  - Several items in one message: «۳ میلیون خرید خونه دادم، ۱۰ لیتر بنزین هم ۱۰۰ تومن» → 2 records
+  - Amount parser (`app/core/parsers/amount_parser.py`): «۳ میلیون», «۲ و نیم میلیون», `2.5 میلیون`,
+    «دو میلیون و پونصد» (= 2,500,000), `100k`, `1.2m`, `450,000 تومن`, toman / rial conversion
+  - Amounts without thousand / million («۳ تومن», `150`) are asked with two buttons
+  - Quantities and units: «۱۰ لیتر», «۲ کیلو», «۳ تا», "10 liters"
+  - Dates: «دیروز», «شنبه» (last Saturday), «۱ مهر» are recorded on that day
+  - Confirmation card with Save / 🏷 Category / Edit / Cancel, and ↩️ Undo after saving
+  - LLM extraction when the rules find no amount
+- 🏷 **Categories**: 13 defaults (Groceries, Food, Restaurant, Home, Fuel, Transport, Bills, Health,
+  Clothing, Education, Gifts, Leisure, Other); chosen by built-in keywords, then the LLM; corrections
+  are **learned** for next time; add / delete in ⚙️ Settings → 🏷 Categories
+- 📊 **Reports**: today (each expense with 🗑), week and month following the selected calendar
+  (Jalali month / Saturday-first week, or Gregorian / Monday-first): total, comparison with the same
+  days of the previous period, daily average, per-category text bars, largest expense; ◀️ ▶️
+  navigation; text requests such as «گزارش این هفته», "report last month", «چقدر خرج کردم»
+- Migration `0005`: `categories` (with defaults), `category_keywords`, `expenses`
+
+### Fixed
+- Number words: «دو میلیون و پونصد» now means 2,500,000 (was 2,000,500); a scale word without a
+  number («میلیون‌ها») is no longer turned into 1000000
+
 ## [0.3.0] - 2026-10-04
 
 ### Added
@@ -74,6 +99,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - GitHub Actions CI: ruff lint + format check, pytest, Docker image build
 - Bilingual (English / Persian) README
 
+[0.4.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.1.0

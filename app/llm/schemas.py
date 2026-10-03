@@ -19,3 +19,30 @@ IMPORTANCE = {
     "properties": {"important": {"type": "boolean"}},
     "required": ["important"],
 }
+
+EXPENSE_EXTRACT = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "description": {"type": "string"},
+                    "amount": {"type": "number"},
+                },
+                "required": ["description", "amount"],
+            },
+        }
+    },
+    "required": ["items"],
+}
+
+
+def expense_categories_schema(names: list[str]) -> dict:
+    """One category per description, restricted to the existing category names."""
+    return {
+        "type": "object",
+        "properties": {"categories": {"type": "array", "items": {"type": "string", "enum": names}}},
+        "required": ["categories"],
+    }

@@ -31,6 +31,11 @@ def settings_menu(current_calendar: Calendar, briefing: bool = True) -> InlineKe
                     callback_data=SettingsCb(action="toggle_briefing").pack(),
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_CATEGORIES, callback_data=CatCb(action="list").pack()
+                )
+            ],
         ]
     )
 
@@ -234,6 +239,169 @@ def reminder_delete_confirm(reminder_id: int) -> InlineKeyboardMarkup:
             [
                 _btn(texts.BTN_YES_DELETE, "confirm_delete", rid=reminder_id),
                 _btn(texts.BTN_CANCEL, "open", rid=reminder_id),
+            ]
+        ]
+    )
+
+
+# --- Expenses ---
+
+
+class ExpCb(CallbackData, prefix="exp"):
+    # scale | save | category | pick | setcat | edit | cancel | undo
+    action: str
+    value: str = ""
+    index: int = 0
+
+
+def _exp(text: str, action: str, value: str = "", index: int = 0) -> InlineKeyboardButton:
+    return InlineKeyboardButton(
+        text=text, callback_data=ExpCb(action=action, value=value, index=index).pack()
+    )
+
+
+def expense_scale(thousand: str, million: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_exp(thousand, "scale", "k"), _exp(million, "scale", "m")],
+            [_exp(texts.BTN_CANCEL, "cancel")],
+        ]
+    )
+
+
+def expense_confirm() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_exp(texts.BTN_SAVE, "save"), _exp(texts.BTN_CATEGORY, "category")],
+            [_exp(texts.BTN_EDIT, "edit"), _exp(texts.BTN_CANCEL, "cancel")],
+        ]
+    )
+
+
+def expense_items(descriptions: list[str]) -> InlineKeyboardMarkup:
+    rows = [[_exp(f"{n}. {d}"[:60], "pick", index=n - 1)] for n, d in enumerate(descriptions, 1)]
+    rows.append([_exp(texts.BTN_BACK, "back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def category_grid(categories: list[tuple[int, str]], index: int) -> InlineKeyboardMarkup:
+    """Two categories per row; `categories` is [(id, "🛒 Groceries"), ...]."""
+    buttons = [_exp(label, "setcat", str(cid), index) for cid, label in categories]
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    rows.append([_exp(texts.BTN_BACK, "back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def expense_saved() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[_exp(texts.BTN_UNDO, "undo")]])
+
+
+# --- Reports ---
+
+
+class RepCb(CallbackData, prefix="rep"):
+    action: str  # show | delete | confirm_delete
+    kind: str = "day"  # day | week | month
+    offset: int = 0
+    eid: int = 0
+
+
+def report_nav(kind: str, offset: int, expense_ids: list[int]) -> InlineKeyboardMarkup:
+    """Delete buttons (day reports), ◀️ / ▶️ through periods, and day / week / month switches."""
+    rows: list[list[InlineKeyboardButton]] = []
+    deletes = [
+        InlineKeyboardButton(
+            text=texts.BTN_DELETE_ITEM.format(n=n),
+            callback_data=RepCb(action="delete", kind=kind, offset=offset, eid=eid).pack(),
+        )
+        for n, eid in enumerate(expense_ids, 1)
+    ]
+    rows += [deletes[i : i + 5] for i in range(0, len(deletes), 5)]
+    nav = [
+        InlineKeyboardButton(
+            text=texts.BTN_PREV,
+            callback_data=RepCb(action="show", kind=kind, offset=offset + 1).pack(),
+        )
+    ]
+    if offset > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text=texts.BTN_NEXT,
+                callback_data=RepCb(action="show", kind=kind, offset=offset - 1).pack(),
+            )
+        )
+    rows.append(nav)
+    switches = [
+        (texts.BTN_REPORT_DAY, "day"),
+        (texts.BTN_REPORT_WEEK, "week"),
+        (texts.BTN_REPORT_MONTH, "month"),
+    ]
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=label, callback_data=RepCb(action="show", kind=target, offset=0).pack()
+            )
+            for label, target in switches
+            if target != kind
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def report_delete_confirm(eid: int, kind: str, offset: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_YES_DELETE,
+                    callback_data=RepCb(
+                        action="confirm_delete", kind=kind, offset=offset, eid=eid
+                    ).pack(),
+                ),
+                InlineKeyboardButton(
+                    text=texts.BTN_CANCEL,
+                    callback_data=RepCb(action="show", kind=kind, offset=offset).pack(),
+                ),
+            ]
+        ]
+    )
+
+
+# --- Categories (Settings) ---
+
+
+class CatCb(CallbackData, prefix="cat"):
+    action: str  # list | delete | confirm_delete | add
+    cid: int = 0
+
+
+def categories_list(categories: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    buttons = [
+        InlineKeyboardButton(text=label, callback_data=CatCb(action="delete", cid=cid).pack())
+        for cid, label in categories
+    ]
+    rows = [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=texts.BTN_ADD_CATEGORY, callback_data=CatCb(action="add").pack()
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def category_delete_confirm(cid: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_YES_DELETE,
+                    callback_data=CatCb(action="confirm_delete", cid=cid).pack(),
+                ),
+                InlineKeyboardButton(
+                    text=texts.BTN_CANCEL, callback_data=CatCb(action="list").pack()
+                ),
             ]
         ]
     )

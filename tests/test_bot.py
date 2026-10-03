@@ -25,6 +25,9 @@ def test_every_menu_button_is_handled():
         texts.BTN_CHATS,
         texts.BTN_NEW_REMINDER,
         texts.BTN_REMINDERS,
+        texts.BTN_ADD_EXPENSE,
+        texts.BTN_TODAY_REPORT,
+        texts.BTN_MONTH_REPORT,
     }
     assert labels == set(PLANNED) | implemented
 

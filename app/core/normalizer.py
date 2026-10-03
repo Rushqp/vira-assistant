@@ -86,6 +86,7 @@ def _is_number_word(token: str) -> bool:
 
 def _value(tokens: list[str]) -> int:
     total = current = 0
+    last_scale = 0
     for tok in (t.lower() for t in tokens):
         if tok in _JOINERS:
             continue
@@ -97,7 +98,11 @@ def _value(tokens: list[str]) -> int:
             current = (current or 1) * 100
         else:  # scale
             total += (current or 1) * _SCALES[tok]
+            last_scale = _SCALES[tok]
             current = 0
+    # Colloquial prices: «دو میلیون و پونصد» means 2,500,000, not 2,000,500.
+    if 0 < current < 1000 and last_scale >= 1_000_000:
+        current *= last_scale // 1000
     return total + current
 
 
@@ -128,13 +133,18 @@ def words_to_numbers(text: str) -> str:
                 j += 1
             elif nxt.lower() in _JOINERS and j + 2 < len(tokens):
                 after = tokens[j + 2][2]
-                if _is_number_word(after) and not after.isdigit():
+                after_scale = run[-1].lower() in _SCALES  # «2 میلیون و 500»
+                if _is_number_word(after) and (not after.isdigit() or after_scale):
                     run += [nxt, after]
                     j += 2
                 else:
                     break
             else:
                 break
+        if tok.lower() in _SCALES:
+            # A scale word without a number before it («میلیون‌ها», «2.5 میلیون») stays a word.
+            i = j + 1
+            continue
         if len(run) == 1 and tok.lower() in _AMBIGUOUS:
             prev_tok = tokens[i - 1][2].lower() if i > 0 else ""
             next_tok = tokens[j + 1][2].lower() if j + 1 < len(tokens) else ""

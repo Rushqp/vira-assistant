@@ -12,3 +12,15 @@ class ReminderForm(StatesGroup):
     time = State()  # waiting for a clock time
     alert_time = State()  # waiting for a custom notification time
     buttons = State()  # waiting for a button press (am/pm, alerts, confirm)
+
+
+class ExpenseForm(StatesGroup):
+    """Recording expenses. The draft lives in the FSM data under "expense"."""
+
+    describe = State()  # 💰 Add Expense: waiting for "what and how much"
+    amount = State()  # waiting for the amount of one item
+    buttons = State()  # waiting for a button press (thousand/million, category, confirm)
+
+
+class CategoryForm(StatesGroup):
+    name = State()  # ⚙️ Settings → 🏷 Categories → ➕ Add: waiting for "emoji name"

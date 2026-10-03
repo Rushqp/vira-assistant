@@ -7,7 +7,7 @@
 
 [English](#english) · [فارسی](#فارسی)
 
-![version](https://img.shields.io/badge/version-0.3.0-blue)
+![version](https://img.shields.io/badge/version-0.4.0-blue)
 ![python](https://img.shields.io/badge/python-3.12-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 [![CI](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml)
@@ -43,8 +43,8 @@ stays responsive on low-spec hardware.
 | **v0.1.0** | Skeleton, Docker, menu, owner-only access, SQLite + Alembic, calendar setting, CI | ✅ Done |
 | **v0.2.0** | Ollama + hardware profiles, streaming chat with short memory, calculator, today's date | ✅ Done |
 | **v0.3.0** | Reminders (fa/en date parser, both calendars, repeats, snooze), morning briefing, previous chats | ✅ Done |
-| v0.4.0 | Amount parser, expenses, categories, reports | ⏳ Next |
-| v0.5.0 | Excel/CSV export, nightly report, morning briefing | |
+| **v0.4.0** | Amount parser, expenses (several per message), 13 categories with learning, day / week / month reports | ✅ Done |
+| v0.5.0 | Excel/CSV export, nightly report, morning briefing | ⏳ Next |
 | v0.6.0 | Voice → text (faster-whisper) | |
 | v0.7.0 | Notes, to-dos, backup | |
 | v1.0.0 | Full tests, optimization, install guide | |
@@ -97,6 +97,19 @@ OpenAI-compatible provider (OpenRouter, Gemini, OpenAI, …).
   buttons. 📋 **Reminders** lists, edits and deletes them.
 - **Morning briefing:** every day at 08:00 you get today's reminders, important ones first
   (can be turned off in ⚙️ Settings).
+- **Expenses:** write what you spent, several items at once:
+  - *۳ میلیون خرید خونه دادم، ۱۰ لیتر بنزین هم ۱۰۰ هزار*
+  - *Paid 3 million for groceries and 100k for fuel* · *نون ۵۰ هزار و شیر ۳۰ هزار*
+  - *دیروز ۲ و نیم میلیون دکتر دادم* (recorded for yesterday)
+
+  If an amount has no thousand / million («۳ تومن», "150"), Vira asks which one you meant.
+  Categories are picked from keywords, then by the model; if you change one, Vira remembers it
+  for next time. Every expense is confirmed before saving and can be undone.
+  Categories can be added or removed in ⚙️ Settings → 🏷 Categories.
+- **Reports:** 📊 **Today Report** (with each expense and a delete button) and 📅 **Month Report**
+  (the Jalali or Gregorian month, as set in Settings): total, comparison with the previous period,
+  daily average, per-category bars and the largest expense. Use ◀️ ▶️ to go back in time, or
+  write *گزارش این هفته* · *report last month* · *چقدر خرج کردم این ماه*.
 
 ### Configuration (`.env`)
 
@@ -141,22 +154,25 @@ app/
 ├── config.py          # All settings from .env (pydantic-settings) + hardware profiles
 ├── texts.py           # Every user-facing string (edit wording here only)
 ├── bot/               # Telegram layer, no business logic
-│   ├── handlers/      #   one file per feature: start, settings, chat, chats, reminders,
-│   │                  #   menu (placeholders), fallback
+│   ├── handlers/      #   one file per feature: start, settings, categories, chat, chats,
+│   │                  #   reminders, expenses, reports, menu (placeholders), fallback
 │   ├── keyboards/     #   reply.py = main menu, inline.py = buttons under messages
 │   ├── middlewares/   #   owner_only, logging, db (session + services), menu_reset (leave forms)
-│   ├── views.py       #   message rendering: reminder cards, notifications, morning briefing
+│   ├── views.py       #   message rendering: reminder cards, notifications, briefing,
+│   │                  #   expense cards, reports (text bars)
 │   ├── streaming.py   #   shows a streamed answer by editing the Telegram message
 │   └── states.py      #   FSM states for multi-step forms
 ├── core/              # Language processing (no LLM)
 │   ├── normalizer.py  #   fa/en digits, number words, Arabic letters, ZWNJ
-│   └── parsers/       #   datetime_parser.py (dates, times, repeats), rules.py (reminder sentences)
+│   └── parsers/       #   datetime_parser.py (dates, times, repeats), rules.py (reminder sentences),
+│                      #   amount_parser.py (amounts, quantities), expense_rules.py (expense sentences)
 ├── llm/               # client.py = OpenAI-compatible client, prompts/, schemas.py (JSON output)
 ├── services/          # Business logic, independent of Telegram: settings, chat, tools,
-│                      #   reminders (drafts, time maths, storage), reminder_ai (LLM help)
+│                      #   reminders + reminder_ai, expenses (drafts, categories, learning)
+│                      #   + expense_ai, reports (periods, totals, comparisons)
 ├── scheduler/         # jobs.py = due reminders + morning briefing, setup.py = APScheduler
 ├── db/                # models.py = tables, session.py = engine + migrations
-└── utils/             # calendar.py = Jalali / Gregorian, formatting.py = Markdown → Telegram HTML
+└── utils/             # calendar.py = Jalali / Gregorian, formatting.py = Markdown → HTML, money
 migrations/            # Alembic migrations (one file per schema change)
 tests/                 # pytest suite (no network or real model needed)
 docker/                # Dockerfile, entrypoint, ollama-init.sh (pulls the profile model)
@@ -168,9 +184,12 @@ How an update flows: **Telegram → middlewares** (owner check, logging, DB sess
 
 A free-text message with "remind me" / «یادم بنداز» goes to `handlers/reminders.py`:
 `core/parsers` extract the event time, notification time and subject, `services/reminders.py`
-decides what still needs asking, and `scheduler/jobs.py` sends the notifications. Any other text
-goes to `handlers/chat.py`: calculator and date questions get an instant answer from
-`services/tools.py`, everything else is answered by the model via `services/chat.py`.
+decides what still needs asking, and `scheduler/jobs.py` sends the notifications. A message with
+an amount («۵۰ هزار», "100k") goes to `handlers/expenses.py`: `core/parsers/expense_rules.py`
+splits it into items, `services/expenses.py` resolves amounts and categories. «گزارش …» /
+"report …" goes to `handlers/reports.py` (`services/reports.py`). Any other text goes to
+`handlers/chat.py`: calculator and date questions get an instant answer from `services/tools.py`,
+everything else is answered by the model via `services/chat.py`.
 
 ### Development
 
@@ -225,8 +244,8 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 | **v0.1.0** | اسکلت پروژه، داکر، منو، دسترسی فقط برای مالک، SQLite و Alembic، تنظیم تقویم، CI | ✅ انجام شد |
 | **v0.2.0** | Ollama و پروفایل‌های سخت‌افزاری، چت استریمی با حافظه کوتاه، ماشین‌حساب، تاریخ امروز | ✅ انجام شد |
 | **v0.3.0** | یادآورها (پارسر تاریخ فارسی/انگلیسی، هر دو تقویم، تکرار، تعویق)، خلاصه صبحگاهی، چت‌های قبلی | ✅ انجام شد |
-| v0.4.0 | پارسر مبلغ، هزینه‌ها، دسته‌بندی‌ها، گزارش‌ها | ⏳ بعدی |
-| v0.5.0 | خروجی اکسل/CSV، گزارش شبانه، خلاصه صبحگاهی | |
+| **v0.4.0** | پارسر مبلغ، هزینه‌ها (چند مورد در یک پیام)، ۱۳ دسته با یادگیری، گزارش روز / هفته / ماه | ✅ انجام شد |
+| v0.5.0 | خروجی اکسل/CSV، گزارش شبانه، خلاصه صبحگاهی | ⏳ بعدی |
 | v0.6.0 | تبدیل صوت به متن (faster-whisper) | |
 | v0.7.0 | یادداشت‌ها، کارهای روزانه، پشتیبان‌گیری | |
 | v1.0.0 | تست کامل، بهینه‌سازی، راهنمای نصب | |
@@ -291,6 +310,19 @@ OpenAI (مثل OpenRouter، Gemini یا OpenAI) تنظیم کنید.
   حذف کنید.
 - **خلاصه صبحگاهی:** هر روز ساعت ۸ صبح فهرست یادآورهای امروز ارسال می‌شود و موارد مهم بالای فهرست
   هستند (در ⚙️ Settings قابل خاموش کردن است).
+- **هزینه‌ها:** هزینه‌ها را بنویسید، چند مورد با هم:
+  - «۳ میلیون خرید خونه دادم، ۱۰ لیتر بنزین هم ۱۰۰ هزار»
+  - «نون ۵۰ هزار و شیر ۳۰ هزار» · "Paid 3 million for groceries and 100k for fuel"
+  - «دیروز ۲ و نیم میلیون دکتر دادم» (برای دیروز ثبت می‌شود)
+
+  اگر مبلغ هزار یا میلیون نداشته باشد («۳ تومن»، «۱۵۰») ویرا می‌پرسد منظورتان کدام است. دسته هر هزینه
+  با کلمات کلیدی و در صورت نیاز با مدل زبانی تعیین می‌شود؛ اگر دسته‌ای را عوض کنید، دفعه بعد یادش
+  می‌ماند. هر هزینه قبل از ذخیره تایید می‌خواهد و قابل برگشت (Undo) است. دسته‌ها از
+  ⚙️ Settings ← 🏷 Categories قابل اضافه و حذف هستند.
+- **گزارش‌ها:** 📊 **Today Report** (با لیست هزینه‌ها و دکمه حذف) و 📅 **Month Report** (ماه شمسی یا
+  میلادی، طبق تنظیمات): جمع کل، مقایسه با دوره قبل، میانگین روزانه، نمودار متنی هر دسته و بزرگ‌ترین
+  هزینه. با ◀️ ▶️ به دوره‌های قبل بروید، یا بنویسید «گزارش این هفته» · «گزارش ماه قبل» ·
+  «چقدر خرج کردم این ماه».
 
 ### تنظیمات (`.env`)
 
@@ -334,18 +366,20 @@ OpenAI (مثل OpenRouter، Gemini یا OpenAI) تنظیم کنید.
 - `app/texts.py`: همه متن‌هایی که کاربر می‌بیند (برای تغییر متن‌ها فقط همین فایل را ویرایش کنید)
 - `app/bot/`: لایه تلگرام، بدون منطق اصلی برنامه
   - `handlers/`: برای هر قابلیت یک فایل جدا (`chat.py` چت، `chats.py` چت‌های قبلی، `reminders.py`
-    یادآورها، `fallback.py` پیام‌های ناشناخته)
+    یادآورها، `expenses.py` هزینه‌ها، `reports.py` گزارش‌ها، `categories.py` مدیریت دسته‌ها،
+    `fallback.py` پیام‌های ناشناخته)
   - `keyboards/`: منوی اصلی (`reply.py`) و دکمه‌های زیر پیام (`inline.py`)
   - `middlewares/`: محدودیت دسترسی به مالک، لاگ، باز کردن سشن دیتابیس و خروج از فرم با دکمه‌های منو
-  - `views.py`: ساخت متن پیام‌ها (کارت یادآور، اعلان، خلاصه صبحگاهی)
+  - `views.py`: ساخت متن پیام‌ها (کارت یادآور، اعلان، خلاصه صبحگاهی، کارت هزینه، گزارش)
   - `streaming.py`: نمایش تدریجی جواب مدل با ویرایش پیام تلگرام
   - `states.py`: وضعیت‌های فرم‌های چندمرحله‌ای (FSM)
 - `app/core/`: پردازش متن بدون مدل زبانی
   - `normalizer.py`: اعداد فارسی، اعداد حروفی («صد و پنجاه»)، حروف عربی و نیم‌فاصله
-  - `parsers/`: پیدا کردن تاریخ، ساعت و تکرار (`datetime_parser.py`) و تحلیل جمله یادآور (`rules.py`)
+  - `parsers/`: پیدا کردن تاریخ، ساعت و تکرار (`datetime_parser.py`)، تحلیل جمله یادآور (`rules.py`)،
+    پیدا کردن مبلغ و مقدار (`amount_parser.py`) و تحلیل جمله هزینه (`expense_rules.py`)
 - `app/llm/`: اتصال به مدل زبانی (`client.py`)، پرامپت‌ها (`prompts/`) و قالب خروجی JSON (`schemas.py`)
-- `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (تنظیمات، چت، ماشین‌حساب، یادآورها و کمک مدل
-  زبانی برای یادآورها)
+- `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (تنظیمات، چت، ماشین‌حساب، یادآورها، هزینه‌ها و
+  دسته‌ها، گزارش‌ها، و کمک مدل زبانی برای یادآور و هزینه)
 - `app/scheduler/`: کارهای زمان‌بندی‌شده: ارسال یادآورها و خلاصه صبحگاهی
 - `app/db/`: جدول‌ها (`models.py`) و اتصال دیتابیس و مایگریشن (`session.py`)
 - `app/utils/`: ابزارهای کمکی مثل تاریخ شمسی/میلادی و تبدیل Markdown به HTML تلگرام
@@ -357,7 +391,9 @@ OpenAI (مثل OpenRouter، Gemini یا OpenAI) تنظیم کنید.
 
 پیامی که «یادم بنداز» یا "remind me" دارد به `handlers/reminders.py` می‌رسد: `core/parsers` زمان رویداد،
 زمان اعلان و موضوع را استخراج می‌کند، `services/reminders.py` تعیین می‌کند چه چیزی هنوز باید پرسیده
-شود، و `scheduler/jobs.py` اعلان‌ها را ارسال می‌کند. بقیه پیام‌ها به `handlers/chat.py` می‌رسند: محاسبه و
+شود، و `scheduler/jobs.py` اعلان‌ها را ارسال می‌کند. پیامی که مبلغ دارد («۵۰ هزار») به `handlers/expenses.py`
+می‌رسد و `core/parsers/expense_rules.py` آن را به چند هزینه تقسیم می‌کند؛ «گزارش …» به `handlers/reports.py`
+می‌رسد. بقیه پیام‌ها به `handlers/chat.py` می‌رسند: محاسبه و
 سوال تاریخ فوراً از `services/tools.py` جواب می‌گیرند و بقیه را مدل زبانی از طریق `services/chat.py`
 جواب می‌دهد.
 

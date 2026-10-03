@@ -1,6 +1,17 @@
 import pytest
 
-from app.bot.handlers import chat, chats, fallback, menu, reminders, settings, start
+from app.bot.handlers import (
+    categories,
+    chat,
+    chats,
+    expenses,
+    fallback,
+    menu,
+    reminders,
+    reports,
+    settings,
+    start,
+)
 from app.config import Settings
 from app.db.session import create_engine, create_sessionmaker, run_migrations
 from tests.fakes import OWNER_ID, make_env
@@ -29,7 +40,18 @@ def detach_routers():
     """Handler routers are module-level singletons: detach them so each test can build a fresh
     dispatcher."""
     yield
-    for module in (start, settings, menu, chats, reminders, chat, fallback):
+    for module in (
+        start,
+        settings,
+        categories,
+        menu,
+        chats,
+        reminders,
+        reports,
+        expenses,
+        chat,
+        fallback,
+    ):
         module.router._parent_router = None
 
 

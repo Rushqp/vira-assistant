@@ -43,3 +43,22 @@ def split_point(text: str, limit: int = TELEGRAM_CHUNK) -> int:
         if cut != -1:
             return cut + len(sep)
     return limit
+
+
+def format_money(amount: int, currency: str) -> str:
+    """`3000000, "toman"` → `3,000,000 toman`."""
+    return f"{amount:,} {currency}"
+
+
+def format_quantity(quantity: float | None, unit: str | None) -> str:
+    """`10.0, "L"` → ` (10 L)`; empty when there is no quantity."""
+    if quantity is None:
+        return ""
+    number = f"{quantity:g}"
+    return f" ({number} {unit})" if unit else f" ({number})"
+
+
+def bar(share: float, width: int = 10) -> str:
+    """Text bar for a 0..1 share: `0.62` → `██████░░░░`."""
+    filled = round(max(0.0, min(share, 1.0)) * width)
+    return "█" * filled + "░" * (width - filled)
