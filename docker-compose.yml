@@ -1,0 +1,14 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: vira-assistant:latest
+    container_name: vira-bot
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    # The bot uses long polling: no ports are exposed.
+
+  # The `ollama` service is added in v0.2.0.
