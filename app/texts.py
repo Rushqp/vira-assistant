@@ -36,11 +36,12 @@ WELCOME = (
 
 HELP = (
     "<b>How to use Vira</b>\n\n"
-    "• Use the menu buttons below, or just write (or speak) what you need.\n"
-    "• Examples:\n"
+    "• Ask me anything in English or Persian, just write it.\n"
+    "• I can calculate (<i>12*350000</i>) and tell you today's date (<i>what's the date?</i>).\n"
+    "• 💬 <b>New Chat</b> clears what I remember of our conversation.\n"
+    "• Coming soon:\n"
     "  — <i>Doctor tomorrow at 2, remind me in the morning</i>\n"
-    "  — <i>Paid 3 million for groceries and 100k for fuel</i>\n"
-    "  — <i>فردا ساعت ۲ دکتر دارم، صبح یادم بنداز</i>\n\n"
+    "  — <i>Paid 3 million for groceries and 100k for fuel</i>\n\n"
     "<b>Commands</b>\n"
     "/menu — show the main menu\n"
     "/new — start a new chat\n"
@@ -54,10 +55,18 @@ CANCELLED = "❌ Cancelled."
 NOTHING_TO_CANCEL = "There's nothing to cancel."
 
 COMING_SOON = "🚧 <b>{feature}</b> is coming in <b>{version}</b>. Stay tuned!"
-FREE_TEXT_NOT_READY = (
-    "🚧 I can't understand free text yet — that arrives in <b>v0.2</b>.\n"
-    "For now, please use the menu below."
-)
+UNKNOWN_COMMAND = "I don't know that command. See /help."
+UNSUPPORTED_MESSAGE = "I can only read text messages for now."
+
+# --- Chat ---
+NEW_CHAT = "🆕 New chat started. Ask me anything!"
+LLM_EMPTY = "🤔 The model returned an empty answer. Please try rephrasing."
+# Plain text (no HTML): these may be appended to a partially streamed answer.
+LLM_ERRORS = {
+    "unreachable": "⚠️ The AI model isn't reachable right now. Please try again in a moment.",
+    "model_missing": "⚠️ The model {model} isn't available. Has it finished downloading?",
+    "failed": "⚠️ The AI model failed to answer. Please try again.",
+}
 
 # --- Settings ---
 SETTINGS = (
@@ -73,4 +82,3 @@ BTN_SWITCH_CALENDAR = "📅 Switch to {calendar}"
 CALENDAR_CHANGED = "✅ Calendar set to {calendar}"
 STT_ON = "on ({model})"
 STT_OFF = "off"
-MODEL_NOT_SET = "not set"

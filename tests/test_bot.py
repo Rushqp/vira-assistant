@@ -7,6 +7,7 @@ from app.bot.keyboards.inline import SettingsCb, settings_menu
 from app.bot.keyboards.reply import main_menu
 from app.config import Calendar
 from app.main import build_dispatcher
+from tests.fakes import FakeLLM
 
 
 def test_main_menu_layout():
@@ -18,7 +19,7 @@ def test_main_menu_layout():
 
 def test_every_menu_button_is_handled():
     labels = {b.text for row in main_menu().keyboard for b in row}
-    assert labels == set(PLANNED) | {texts.BTN_SETTINGS}
+    assert labels == set(PLANNED) | {texts.BTN_SETTINGS, texts.BTN_NEW_CHAT}
 
 
 def test_settings_keyboard_offers_the_other_calendar():
@@ -36,5 +37,5 @@ def test_render_settings(config):
 
 
 def test_dispatcher_builds(config, sessionmaker):
-    dp = build_dispatcher(config, sessionmaker)
+    dp = build_dispatcher(config, sessionmaker, FakeLLM())  # type: ignore[arg-type]
     assert {"message", "callback_query"} <= set(dp.resolve_used_update_types())

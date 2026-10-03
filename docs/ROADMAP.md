@@ -249,8 +249,9 @@ vira-assistant/
 │   ├── config.py               # pydantic-settings
 │   ├── texts.py                # all English UI strings
 │   ├── bot/
-│   │   ├── handlers/           # start, menu, chat, reminders, expenses, reports, notes, voice, settings
+│   │   ├── handlers/           # start, menu, chat, reminders, expenses, reports, notes, voice, settings, fallback
 │   │   ├── keyboards/          # reply.py, inline.py
+│   │   ├── streaming.py        # streamed LLM answers via message edits
 │   │   ├── states.py           # FSM states
 │   │   └── middlewares/        # owner_only.py, logging.py, db.py
 │   ├── core/

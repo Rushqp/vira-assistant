@@ -8,13 +8,18 @@ from aiogram.types import TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
+from app.llm.client import LLMClient
+from app.services.chat import ChatService
 from app.services.settings import SettingsService
 
 
 class DbSessionMiddleware(BaseMiddleware):
-    def __init__(self, sessionmaker: async_sessionmaker[AsyncSession], config: Settings) -> None:
+    def __init__(
+        self, sessionmaker: async_sessionmaker[AsyncSession], config: Settings, llm: LLMClient
+    ) -> None:
         self.sessionmaker = sessionmaker
         self.config = config
+        self.llm = llm
 
     async def __call__(
         self,
@@ -25,4 +30,7 @@ class DbSessionMiddleware(BaseMiddleware):
         async with self.sessionmaker() as session:
             data["session"] = session
             data["settings_service"] = SettingsService(session, self.config.default_calendar)
+            data["chat_service"] = ChatService(
+                session, self.llm, self.config.chat_memory, self.config.timezone
+            )
             return await handler(event, data)

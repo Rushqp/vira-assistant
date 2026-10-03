@@ -20,6 +20,7 @@ from app.bot.middlewares.logging import LoggingMiddleware
 from app.bot.middlewares.owner_only import OwnerOnlyMiddleware
 from app.config import Settings, get_settings
 from app.db.session import create_engine, create_sessionmaker, run_migrations
+from app.llm.client import LLMClient
 
 
 class _InterceptHandler(logging.Handler):
@@ -39,11 +40,11 @@ def setup_logging(level: str) -> None:
     logging.basicConfig(handlers=[_InterceptHandler()], level=logging.INFO, force=True)
 
 
-def build_dispatcher(config: Settings, sessionmaker) -> Dispatcher:
+def build_dispatcher(config: Settings, sessionmaker, llm: LLMClient) -> Dispatcher:
     dp = Dispatcher(config=config)
     dp.update.outer_middleware(OwnerOnlyMiddleware(config.owner_id))
     dp.update.outer_middleware(LoggingMiddleware())
-    dp.update.middleware(DbSessionMiddleware(sessionmaker, config))
+    dp.update.middleware(DbSessionMiddleware(sessionmaker, config, llm))
     dp.include_router(build_router())
     return dp
 
@@ -51,6 +52,7 @@ def build_dispatcher(config: Settings, sessionmaker) -> Dispatcher:
 async def run_bot(config: Settings) -> None:
     engine = create_engine(config.database_url)
     sessionmaker = create_sessionmaker(engine)
+    llm = LLMClient.from_settings(config)
 
     session = AiohttpSession(proxy=config.telegram_proxy) if config.telegram_proxy else None
     bot = Bot(
@@ -58,7 +60,7 @@ async def run_bot(config: Settings) -> None:
         session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-    dp = build_dispatcher(config, sessionmaker)
+    dp = build_dispatcher(config, sessionmaker, llm)
 
     try:
         await bot.set_my_commands(
@@ -68,9 +70,11 @@ async def run_bot(config: Settings) -> None:
         logger.info(
             "Vira v{} started as @{} (profile={})", __version__, me.username, config.profile
         )
+        await llm.check()  # informational only: the model may still be downloading
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         await bot.session.close()
+        await llm.close()
         await engine.dispose()
 
 
@@ -78,8 +82,10 @@ def main() -> None:
     try:
         config = get_settings()
     except ValidationError as exc:
-        fields = ", ".join(str(err["loc"][0]).upper() for err in exc.errors())
-        sys.exit(f"Invalid or missing settings in .env: {fields}")
+        problems = [
+            str(err["loc"][0]).upper() if err["loc"] else err["msg"] for err in exc.errors()
+        ]
+        sys.exit(f"Invalid or missing settings in .env: {', '.join(problems)}")
 
     setup_logging(config.log_level)
     logger.info("Applying database migrations…")

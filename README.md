@@ -7,7 +7,7 @@
 
 [English](#english) · [فارسی](#فارسی)
 
-![version](https://img.shields.io/badge/version-0.1.0-blue)
+![version](https://img.shields.io/badge/version-0.2.0-blue)
 ![python](https://img.shields.io/badge/python-3.12-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 [![CI](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml)
@@ -41,8 +41,8 @@ stays responsive on low-spec hardware.
 | Version | Scope | State |
 |---|---|---|
 | **v0.1.0** | Skeleton, Docker, menu, owner-only access, SQLite + Alembic, calendar setting, CI | ✅ Done |
-| v0.2.0 | Ollama + hardware profiles, chat with short memory | ⏳ Next |
-| v0.3.0 | Date/time parser (fa/en, both calendars), reminders, scheduler | |
+| **v0.2.0** | Ollama + hardware profiles, streaming chat with short memory, calculator, today's date | ✅ Done |
+| v0.3.0 | Date/time parser (fa/en, both calendars), reminders, scheduler | ⏳ Next |
 | v0.4.0 | Amount parser, expenses, categories, reports | |
 | v0.5.0 | Excel/CSV export, nightly report, morning briefing | |
 | v0.6.0 | Voice → text (faster-whisper) | |
@@ -74,6 +74,13 @@ The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 5. Open your bot in Telegram and send `/start`.
 
+On the first start, the `ollama-init` container downloads the model for your profile (about 2 GB for
+`standard`). Until it finishes, the bot waits. Follow the progress with `docker compose logs -f ollama-init`.
+
+**Using an external API instead of Ollama** (`PROFILE=remote`): set `COMPOSE_PROFILES=` (empty) so the
+Ollama containers are not started, and set `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY` for any
+OpenAI-compatible provider (OpenRouter, Gemini, OpenAI, …).
+
 ### Configuration (`.env`)
 
 | Variable | Default | Description |
@@ -85,9 +92,13 @@ The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 | `DEFAULT_CALENDAR` | `jalali` | `jalali` or `gregorian` (can be changed in Settings) |
 | `CURRENCY` | `toman` | `toman` or `rial` |
 | `PROFILE` | `standard` | Hardware profile: `lite`, `standard`, `full`, `remote` |
+| `COMPOSE_PROFILES` | `ollama` | Starts the local Ollama containers; empty for `remote` |
 | `LLM_BASE_URL` | `http://ollama:11434/v1` | Any OpenAI-compatible endpoint |
-| `LLM_MODEL` | profile default | Override the LLM model |
+| `LLM_MODEL` | profile default | Override the LLM model (**required** for `remote`) |
 | `LLM_API_KEY` | `ollama` | API key (used by `remote`) |
+| `LLM_TIMEOUT` | `180` | Seconds to wait for an answer |
+| `CHAT_MEMORY` | `10` | How many previous messages the chat remembers (0–50) |
+| `OLLAMA_KEEP_ALIVE` | `30m` | How long the model stays in RAM after use (`-1` = forever) |
 | `STT_ENABLED` | `true` | Enable voice transcription |
 | `STT_MODEL` | profile default | Override the Whisper model |
 | `DAILY_REPORT_TIME` | `22:00` | Time of the nightly report |
@@ -110,21 +121,28 @@ app/
 ├── config.py          # All settings from .env (pydantic-settings) + hardware profiles
 ├── texts.py           # Every user-facing string (edit wording here only)
 ├── bot/               # Telegram layer, no business logic
-│   ├── handlers/      #   one file per feature: start, settings, menu (placeholders + fallback)
+│   ├── handlers/      #   one file per feature: start, settings, chat, menu (placeholders), fallback
 │   ├── keyboards/     #   reply.py = main menu, inline.py = buttons under messages
-│   ├── middlewares/   #   owner_only (single-user guard), logging, db (session per update)
+│   ├── middlewares/   #   owner_only (single-user guard), logging, db (session + services per update)
+│   ├── streaming.py   #   shows a streamed answer by editing the Telegram message
 │   └── states.py      #   FSM states for multi-step forms
-├── services/          # Business logic, independent of Telegram (settings, …)
+├── core/              # Language processing: normalizer.py (fa/en digits, language detection)
+├── llm/               # client.py = OpenAI-compatible client, prompts/ = system prompts
+├── services/          # Business logic, independent of Telegram: settings, chat, tools (calculator, date)
 ├── db/                # models.py = tables, session.py = engine + migrations
-└── utils/             # calendar.py = Jalali / Gregorian formatting
+└── utils/             # calendar.py = Jalali / Gregorian, formatting.py = Markdown → Telegram HTML
 migrations/            # Alembic migrations (one file per schema change)
-tests/                 # pytest suite
-docker/                # Dockerfile + entrypoint
+tests/                 # pytest suite (no network or real model needed)
+docker/                # Dockerfile, entrypoint, ollama-init.sh (pulls the profile model)
 docs/                  # Roadmap and documentation
 ```
 
 How an update flows: **Telegram → middlewares** (owner check, logging, DB session) **→ handler**
-(`bot/handlers`) **→ service** (`services`) **→ database** (`db`).
+(`bot/handlers`) **→ service** (`services`) **→ database** (`db`) / **LLM** (`llm`).
+
+A free-text message goes to `handlers/chat.py`. Calculator and date questions get an instant answer
+from `services/tools.py`. Anything else goes to `services/chat.py`, which adds the recent history and
+streams the model's answer back.
 
 ### Development
 
@@ -177,8 +195,8 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 | نسخه | محتوا | وضعیت |
 |---|---|---|
 | **v0.1.0** | اسکلت پروژه، داکر، منو، دسترسی فقط برای مالک، SQLite و Alembic، تنظیم تقویم، CI | ✅ انجام شد |
-| v0.2.0 | Ollama و پروفایل‌های سخت‌افزاری، چت با حافظه کوتاه | ⏳ بعدی |
-| v0.3.0 | پارسر تاریخ و ساعت (فارسی/انگلیسی، هر دو تقویم)، یادآورها، زمان‌بند | |
+| **v0.2.0** | Ollama و پروفایل‌های سخت‌افزاری، چت استریمی با حافظه کوتاه، ماشین‌حساب، تاریخ امروز | ✅ انجام شد |
+| v0.3.0 | پارسر تاریخ و ساعت (فارسی/انگلیسی، هر دو تقویم)، یادآورها، زمان‌بند | ⏳ بعدی |
 | v0.4.0 | پارسر مبلغ، هزینه‌ها، دسته‌بندی‌ها، گزارش‌ها | |
 | v0.5.0 | خروجی اکسل/CSV، گزارش شبانه، خلاصه صبحگاهی | |
 | v0.6.0 | تبدیل صوت به متن (faster-whisper) | |
@@ -220,6 +238,14 @@ docker compose logs -f bot
 
 ۵. ربات را در تلگرام باز کنید و `/start` را بفرستید.
 
+در اولین اجرا، کانتینر `ollama-init` مدل مربوط به پروفایل شما را دانلود می‌کند (برای `standard` حدود ۲
+گیگ). تا دانلود تمام نشود ربات منتظر می‌ماند. پیشرفت دانلود را با `docker compose logs -f ollama-init`
+ببینید.
+
+**استفاده از API خارجی به جای Ollama** (`PROFILE=remote`): مقدار `COMPOSE_PROFILES` را خالی بگذارید تا
+کانتینرهای Ollama اجرا نشوند، و `LLM_BASE_URL`، `LLM_MODEL` و `LLM_API_KEY` را برای هر سرویس سازگار با
+OpenAI (مثل OpenRouter، Gemini یا OpenAI) تنظیم کنید.
+
 ### تنظیمات (`.env`)
 
 | متغیر | پیش‌فرض | توضیح |
@@ -231,9 +257,13 @@ docker compose logs -f bot
 | `DEFAULT_CALENDAR` | `jalali` | `jalali` یا `gregorian` (در تنظیمات ربات هم قابل تغییر است) |
 | `CURRENCY` | `toman` | `toman` یا `rial` |
 | `PROFILE` | `standard` | پروفایل سخت‌افزار: `lite`، `standard`، `full`، `remote` |
+| `COMPOSE_PROFILES` | `ollama` | اجرای کانتینرهای Ollama؛ برای `remote` خالی بگذارید |
 | `LLM_BASE_URL` | `http://ollama:11434/v1` | هر API سازگار با OpenAI |
-| `LLM_MODEL` | پیش‌فرض پروفایل | تعیین دستی مدل زبانی |
+| `LLM_MODEL` | پیش‌فرض پروفایل | تعیین دستی مدل زبانی (برای `remote` **الزامی**) |
 | `LLM_API_KEY` | `ollama` | کلید API (برای `remote`) |
+| `LLM_TIMEOUT` | `180` | حداکثر زمان انتظار برای جواب (ثانیه) |
+| `CHAT_MEMORY` | `10` | تعداد پیام‌های قبلی که چت به خاطر می‌سپارد (۰ تا ۵۰) |
+| `OLLAMA_KEEP_ALIVE` | `30m` | مدت ماندن مدل در رم بعد از آخرین پیام (`-1` یعنی همیشه) |
 | `STT_ENABLED` | `true` | فعال بودن تبدیل صوت به متن |
 | `STT_MODEL` | پیش‌فرض پروفایل | تعیین دستی مدل Whisper |
 | `DAILY_REPORT_TIME` | `22:00` | ساعت گزارش شبانه |
@@ -254,18 +284,25 @@ docker compose logs -f bot
 - `app/config.py`: همه تنظیمات `.env` و پروفایل‌های سخت‌افزاری
 - `app/texts.py`: همه متن‌هایی که کاربر می‌بیند (برای تغییر متن‌ها فقط همین فایل را ویرایش کنید)
 - `app/bot/`: لایه تلگرام، بدون منطق اصلی برنامه
-  - `handlers/`: برای هر قابلیت یک فایل جدا
+  - `handlers/`: برای هر قابلیت یک فایل جدا (`chat.py` برای چت، `fallback.py` برای پیام‌های ناشناخته)
   - `keyboards/`: منوی اصلی (`reply.py`) و دکمه‌های زیر پیام (`inline.py`)
   - `middlewares/`: محدودیت دسترسی به مالک، لاگ و باز کردن سشن دیتابیس
+  - `streaming.py`: نمایش تدریجی جواب مدل با ویرایش پیام تلگرام
   - `states.py`: وضعیت‌های فرم‌های چندمرحله‌ای (FSM)
-- `app/services/`: منطق اصلی برنامه، مستقل از تلگرام
+- `app/core/`: پردازش متن، مثل تبدیل اعداد فارسی و تشخیص زبان (`normalizer.py`)
+- `app/llm/`: اتصال به مدل زبانی (`client.py`) و پرامپت‌ها (`prompts/`)
+- `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (تنظیمات، چت، ماشین‌حساب و تاریخ)
 - `app/db/`: جدول‌ها (`models.py`) و اتصال دیتابیس و مایگریشن (`session.py`)
-- `app/utils/`: ابزارهای کمکی مثل تبدیل تاریخ شمسی و میلادی
+- `app/utils/`: ابزارهای کمکی مثل تاریخ شمسی/میلادی و تبدیل Markdown به HTML تلگرام
 - `migrations/`: مایگریشن‌های Alembic
-- `tests/`: تست‌ها
-- `docker/`: فایل Dockerfile و اسکریپت شروع کانتینر
+- `tests/`: تست‌ها (بدون نیاز به اینترنت یا مدل واقعی)
+- `docker/`: فایل Dockerfile، اسکریپت شروع کانتینر و `ollama-init.sh` برای دانلود مدل
 
-مسیر هر پیام: **تلگرام ← میدل‌ورها ← هندلر ← سرویس ← دیتابیس**
+مسیر هر پیام: **تلگرام ← میدل‌ورها ← هندلر ← سرویس ← دیتابیس / مدل زبانی**
+
+پیام متنی آزاد به `handlers/chat.py` می‌رسد. اگر محاسبه یا سوال تاریخ باشد، `services/tools.py` فوراً
+جواب می‌دهد. در غیر این صورت `services/chat.py` تاریخچه اخیر را اضافه می‌کند و جواب مدل را به صورت
+تدریجی برمی‌گرداند.
 
 ### توسعه
 

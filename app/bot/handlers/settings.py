@@ -22,7 +22,7 @@ def render_settings(config: Settings, calendar: Calendar) -> str:
         calendar=texts.CALENDAR_NAMES[calendar],
         timezone=config.tz,
         today=format_date(now_local(config.timezone).date(), calendar),
-        model=config.effective_llm_model or texts.MODEL_NOT_SET,
+        model=config.effective_llm_model,
         profile=config.profile.value,
         stt=stt,
     )

@@ -5,7 +5,7 @@ from enum import StrEnum
 from functools import lru_cache
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://ollama:11434/v1"
     llm_model: str | None = None
     llm_api_key: SecretStr = SecretStr("ollama")
+    llm_timeout: float = Field(default=180, gt=0)  # seconds; CPU inference can be slow
+    chat_memory: int = Field(default=10, ge=0, le=50)  # previous messages sent as context
     stt_enabled: bool = True
     stt_model: str | None = None
 
@@ -79,6 +81,12 @@ class Settings(BaseSettings):
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ValueError(f"Unknown timezone: {value!r}") from exc
         return value
+
+    @model_validator(mode="after")
+    def _remote_needs_model(self) -> "Settings":
+        if self.profile == Profile.REMOTE and not self.llm_model:
+            raise ValueError("LLM_MODEL is required when PROFILE=remote")
+        return self
 
     @property
     def timezone(self) -> ZoneInfo:

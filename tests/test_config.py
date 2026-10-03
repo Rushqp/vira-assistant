@@ -64,3 +64,16 @@ def test_invalid_timezone_rejected():
 def test_invalid_profile_rejected():
     with pytest.raises(ValidationError):
         make(profile="huge")
+
+
+def test_remote_profile_requires_model():
+    with pytest.raises(ValidationError, match="LLM_MODEL is required"):
+        make(profile="remote")
+    s = make(profile="remote", llm_model="gpt-4o-mini", llm_base_url="https://api.example.com/v1")
+    assert s.effective_llm_model == "gpt-4o-mini"
+
+
+def test_chat_memory_bounds():
+    assert make(chat_memory=0).chat_memory == 0
+    with pytest.raises(ValidationError):
+        make(chat_memory=-1)

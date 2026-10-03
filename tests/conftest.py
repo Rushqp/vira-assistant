@@ -1,5 +1,6 @@
 import pytest
 
+from app.bot.handlers import chat, fallback, menu, settings, start
 from app.config import Settings
 from app.db.session import create_engine, create_sessionmaker, run_migrations
 
@@ -22,3 +23,12 @@ async def sessionmaker(config):
     engine = create_engine(config.database_url)
     yield create_sessionmaker(engine)
     await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def detach_routers():
+    """Handler routers are module-level singletons: detach them so each test can build a fresh
+    dispatcher."""
+    yield
+    for module in (start, settings, menu, chat, fallback):
+        module.router._parent_router = None
