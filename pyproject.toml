@@ -44,4 +44,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC", "RUF"]
-ignore = ["RUF001", "RUF002", "RUF003"]  # emoji / Persian characters are intentional
+ignore = [
+    "RUF001", "RUF002", "RUF003",  # emoji / Persian characters are intentional
+    "RUF012",  # SQLAlchemy `__table_args__` dicts are class attributes by design
+]

@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr = SecretStr("ollama")
     llm_timeout: float = Field(default=180, gt=0)  # seconds; CPU inference can be slow
     chat_memory: int = Field(default=10, ge=0, le=50)  # previous messages sent as context
+    chat_keep: int = Field(default=20, ge=1, le=200)  # previous chats kept in 🗂 Chats
     stt_enabled: bool = True
     stt_model: str | None = None
 

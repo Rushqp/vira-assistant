@@ -12,14 +12,14 @@ from tests.fakes import FakeLLM
 
 def test_main_menu_layout():
     rows = [[b.text for b in row] for row in main_menu().keyboard]
-    assert [len(r) for r in rows] == [2, 3, 3, 2]
-    assert rows[0] == [texts.BTN_NEW_CHAT, texts.BTN_NEW_REMINDER]
+    assert [len(r) for r in rows] == [3, 3, 3, 2]
+    assert rows[0] == [texts.BTN_NEW_CHAT, texts.BTN_CHATS, texts.BTN_NEW_REMINDER]
     assert rows[-1] == [texts.BTN_EXPORT, texts.BTN_SETTINGS]
 
 
 def test_every_menu_button_is_handled():
     labels = {b.text for row in main_menu().keyboard for b in row}
-    assert labels == set(PLANNED) | {texts.BTN_SETTINGS, texts.BTN_NEW_CHAT}
+    assert labels == set(PLANNED) | {texts.BTN_SETTINGS, texts.BTN_NEW_CHAT, texts.BTN_CHATS}
 
 
 def test_settings_keyboard_offers_the_other_calendar():

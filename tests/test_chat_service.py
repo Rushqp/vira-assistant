@@ -55,16 +55,27 @@ async def test_system_prompt_contains_both_calendars(sessionmaker):
     assert "Asia/Tehran" in system
 
 
-async def test_memory_is_capped(sessionmaker):
+async def test_only_recent_messages_are_sent_as_context(sessionmaker):
     llm = FakeLLM("ok")
     async with sessionmaker() as session:
         service = make_service(session, llm, memory=4)
         for i in range(5):
             await collect(service, f"q{i}")
+        # Everything is kept for resuming the chat later...
         count = await session.scalar(select(func.count()).select_from(ChatHistory))
-        assert count == 4
+        assert count == 10
+        # ...but only the last `memory` messages go to the model.
         chat = await service.active_session()
         assert [h.content for h in await service.history(chat.id)] == ["q3", "ok", "q4", "ok"]
+
+
+async def test_history_per_chat_is_capped(sessionmaker, monkeypatch):
+    monkeypatch.setattr("app.services.chat.HISTORY_PER_CHAT", 6)
+    async with sessionmaker() as session:
+        service = make_service(session, FakeLLM("ok"))
+        for i in range(5):
+            await collect(service, f"q{i}")
+        assert await session.scalar(select(func.count()).select_from(ChatHistory)) == 6
 
 
 async def test_new_session_clears_context(sessionmaker):

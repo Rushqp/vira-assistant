@@ -31,6 +31,10 @@ class DbSessionMiddleware(BaseMiddleware):
             data["session"] = session
             data["settings_service"] = SettingsService(session, self.config.default_calendar)
             data["chat_service"] = ChatService(
-                session, self.llm, self.config.chat_memory, self.config.timezone
+                session,
+                self.llm,
+                memory=self.config.chat_memory,
+                timezone=self.config.timezone,
+                keep=self.config.chat_keep,
             )
             return await handler(event, data)

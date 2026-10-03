@@ -10,7 +10,7 @@ def _row(*labels: str) -> list[KeyboardButton]:
 def main_menu() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
-            _row(texts.BTN_NEW_CHAT, texts.BTN_NEW_REMINDER),
+            _row(texts.BTN_NEW_CHAT, texts.BTN_CHATS, texts.BTN_NEW_REMINDER),
             _row(texts.BTN_ADD_EXPENSE, texts.BTN_TODAY_REPORT, texts.BTN_MONTH_REPORT),
             _row(texts.BTN_REMINDERS, texts.BTN_TODOS, texts.BTN_NOTES),
             _row(texts.BTN_EXPORT, texts.BTN_SETTINGS),

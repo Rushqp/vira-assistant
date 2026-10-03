@@ -30,17 +30,24 @@ class Setting(Base):
 
 
 class ChatSession(Base):
-    """One conversation. 💬 New Chat ends the active session and starts a new one."""
+    """One conversation.
+
+    The session with `ended_at IS NULL` is the active one. 💬 New Chat ends it and starts a new
+    one; 🗂 Chats can re-open an older session (its `ended_at` is cleared again).
+    """
 
     __tablename__ = "chat_sessions"
+    __table_args__ = {"sqlite_autoincrement": True}  # never reuse ids of deleted chats
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str | None] = mapped_column(String(100), default=None)  # first question
     started_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)  # last message
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
 
 
 class ChatHistory(Base):
-    """Messages of a session, capped to the last `CHAT_MEMORY` entries."""
+    """Messages of a session. Only the last `CHAT_MEMORY` are sent to the model as context."""
 
     __tablename__ = "chat_history"
 

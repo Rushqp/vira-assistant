@@ -2,7 +2,7 @@
 
 from aiogram import Router
 
-from app.bot.handlers import chat, fallback, menu, settings, start
+from app.bot.handlers import chat, chats, fallback, menu, settings, start
 
 
 def build_router() -> Router:
@@ -13,6 +13,7 @@ def build_router() -> Router:
         start.router,
         settings.router,
         menu.router,
+        chats.router,
         chat.router,
         fallback.router,
     )
