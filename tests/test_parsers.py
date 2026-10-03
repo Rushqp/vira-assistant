@@ -298,3 +298,34 @@ def test_without_trigger_everything_is_the_event():
     assert not r.has_trigger and r.notify is None and not r.notify_at_event
     assert r.subject == "call the bank"
     assert r.event.time == time(16)
+
+
+# --- Trigger robustness (reported: «یک یاد اوری تنظیم کن …» went to chat) ---
+
+
+@pytest.mark.parametrize(
+    ("text", "subject"),
+    [
+        ("یک یاد اوری تنظیم کن برای ۵ دقیقه دیگه میخوام کتاب بخونم", "میخوام کتاب بخونم"),
+        ("یاداوری کن ساعت ۸ شب قرص بخورم", "قرص بخورم"),
+        ("یه یادآور بذار فردا ساعت ۹ صبح جلسه", "جلسه"),
+        ("یه یادآوری برای فردا ساعت ۹ دندونپزشکی", "دندونپزشکی"),
+        ("set a reminder for tomorrow at 9am dentist", "dentist"),
+        ("reminder: dentist tomorrow 10am", "dentist"),
+        ("یه آلارم بذار برای ۷ صبح", "آلارم"),
+        ("بیدارم کن ساعت ۶ صبح", "بیدار شدن"),
+        ("wake me up at 6:30 am", "Wake up"),
+        ("ساعت ۵ خبرم کن", ""),  # subject will be asked
+    ],
+)
+def test_reminder_phrasings(text, subject):
+    assert has_reminder_trigger(text), text
+    assert parse_reminder(text, TODAY, DT).subject == subject
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["یادآوری چیه؟", "how do reminders work", "بهم بگو پایتخت فرانسه کجاست", "tell me a joke"],
+)
+def test_questions_about_reminders_are_not_reminders(text):
+    assert not has_reminder_trigger(text)

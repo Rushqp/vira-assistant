@@ -19,15 +19,34 @@ from datetime import date
 from app.core.normalizer import detect_language, normalize
 from app.core.parsers.datetime_parser import Atom, B, DayTimes, E, Moment, find_atoms, resolve
 
+_SET_FA = r"(?:بذار(?:ی|ید)?|بزار(?:ی|ید)?|(?:ثبت|تنظیم|ست|درست)\s*کن(?:ی|ید)?|کن(?:ی|ید)?)"
+_ARTICLE_FA = r"(?:(?:یه|یک|1)\s*)?"
+# Always mean "create a reminder".
 TRIGGER = re.compile(
-    r"\bremind\s+me\b|\bset\s+(?:a\s+)?reminder\b|\bremind\b|\breminder\b"
+    r"\b(?:please\s+)?remind\s+me\b"
+    r"|\b(?:set|add|create|make)\s+(?:a\s+|an\s+|me\s+a\s+)?(?:reminder|alarm)\b"
     r"|\bdon'?t\s+let\s+me\s+forget\b"
-    rf"|{B}(?:بهم\s*)?یاد(?:م|ت)?\s*(?:بنداز(?:ی|ید)?|بیار(?:ی|ید)?|باشه){E}"
-    rf"|{B}(?:بهم\s*)?یادآوری\s*(?:کن(?:ی|ید)?|بذار|بزار|ثبت\s*کن){E}"
-    rf"|{B}یادآور\s*(?:بذار|بزار|ثبت\s*کن){E}"
-    rf"|{B}یادآوری{E}",
+    rf"|{B}(?:بهم\s*|به\s*من\s*)?یاد(?:م|ت|\s*من)?\s*(?:بنداز(?:ی|ید)?|بیار(?:ی|ید)?|باشه){E}"
+    rf"|{B}(?:بهم\s*)?{_ARTICLE_FA}(?:یادآوری|یادآور|آلارم|هشدار)\s*(?:برام\s*|واسم\s*)?{_SET_FA}{E}",
     re.IGNORECASE,
 )
+# Mean "create a reminder" only when the sentence also contains a date or time:
+# «ساعت ۵ خبرم کن» is a reminder, «بهم بگو پایتخت فرانسه کجاست» or «یادآوری چیه؟» is not.
+WEAK_TRIGGER = re.compile(
+    r"\b(?:notify|alert|ping|tell|call|wake)\s+me(?:\s+up)?\b|\bremind\b|\breminders?\b|\balarm\b"
+    rf"|{B}{_ARTICLE_FA}(?:یادآوری|یادآور|آلارم){E}"
+    rf"|{B}(?:خبرم\s*کن(?:ی|ید)?|بهم\s*خبر\s*بده|بهم\s*بگو|صدام\s*کن|بیدارم\s*کن|یادت\s*نره){E}",
+    re.IGNORECASE,
+)
+# Alarms / wake-up calls need no subject: a default one is used.
+_ALARM = re.compile(r"\balarm\b|\bwake\b|آلارم|هشدار|بیدارم", re.IGNORECASE)
+_WAKE = re.compile(r"\bwake\b|بیدارم", re.IGNORECASE)
+DEFAULT_SUBJECTS = {
+    ("fa", True): "بیدار شدن",
+    ("fa", False): "آلارم",
+    ("en", True): "Wake up",
+    ("en", False): "Alarm",
+}
 _CLAUSE_BREAK = re.compile(r"[,،;؛.!?؟\n]")
 # Words allowed between atoms of one cluster ("tomorrow at 2", «فردا ساعت ۲»).
 _FILLER = re.compile(r"^(?:\s|\x00|\b(?:at|on|in|the|of|by|around|حدود|ساعت|روز)\b)*$", re.I)
@@ -45,12 +64,18 @@ class ReminderParse:
     has_trigger: bool
 
 
-def find_trigger(text: str) -> re.Match | None:
-    return TRIGGER.search(text)
+def find_trigger(text: str, today: date | None = None) -> re.Match | None:
+    """The phrase that makes `text` (normalized) a reminder request, if any."""
+    if match := TRIGGER.search(text):
+        return match
+    weak = WEAK_TRIGGER.search(text)
+    if weak and find_atoms(text, today or date.today()):
+        return weak
+    return None
 
 
 def has_reminder_trigger(text: str) -> bool:
-    return find_trigger(normalize(text)) is not None
+    return find_trigger(normalize(text, lowercase=False)) is not None
 
 
 def _clusters(text: str, atoms: list[Atom]) -> list[list[Atom]]:
@@ -105,7 +130,7 @@ def _clean_subject(text: str, spans: list[tuple[int, int]]) -> str:
 def parse_reminder(raw: str, today: date, day_times: DayTimes) -> ReminderParse:
     text = normalize(raw, lowercase=False)
     atoms = find_atoms(text, today)
-    trigger = find_trigger(text)
+    trigger = find_trigger(text, today)
     clusters = _clusters(text, atoms)
 
     # Repeats always describe the event, wherever they appear.
@@ -140,6 +165,9 @@ def parse_reminder(raw: str, today: date, day_times: DayTimes) -> ReminderParse:
     if trigger:
         spans.append(trigger.span())
     subject = _clean_subject(text, spans)
+    if not subject and trigger and _ALARM.search(trigger.group()):
+        wake = bool(_WAKE.search(trigger.group()))
+        subject = DEFAULT_SUBJECTS[(detect_language(text), wake)]
     return ReminderParse(
         subject=subject,
         event=event,

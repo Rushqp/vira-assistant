@@ -157,8 +157,10 @@ _COMPOUNDS = [
     (re.compile(rf"بعد[\s{ZWNJ}]*از[\s{ZWNJ}]*ظهر"), "بعدازظهر"),
     (re.compile(rf"نیمه[\s{ZWNJ}]*شب"), f"نیمه{ZWNJ}شب"),
     (re.compile(rf"فردا[\s{ZWNJ}]*شب"), f"فردا{ZWNJ}شب"),
-    (re.compile(rf"یاد[\s{ZWNJ}]*آوری"), "یادآوری"),
-    (re.compile(rf"یاد[\s{ZWNJ}]*آور\b"), "یادآور"),
+    # «یاد آوری», «یاد اوری», «یاداوری» → «یادآوری» (common spellings without the madda)
+    (re.compile(rf"یاد[\s{ZWNJ}]*[اآ]وری"), "یادآوری"),
+    (re.compile(rf"یاد[\s{ZWNJ}]*[اآ]ور(?![\w{ZWNJ}])"), "یادآور"),
+    (re.compile(rf"(?<![\w{ZWNJ}])[اآ]لارم"), "آلارم"),
 ]
 
 

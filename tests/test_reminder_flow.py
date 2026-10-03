@@ -164,3 +164,11 @@ async def test_reminders_empty(env):
 
 def test_today_is_not_frozen():
     assert date.today().year >= 2026
+
+
+async def test_reported_sentence_creates_a_reminder(env):
+    """Regression: «یاد اوری» (no madda, with a space) used to go to the chat."""
+    await env.send("یک یاد اوری تنظیم کن برای ۵ دقیقه دیگه میخوام کتاب بخونم")
+    assert env.llm.calls == []  # not answered by the chat model
+    assert "<b>New reminder</b>" in env.session.sent[-1]
+    assert "میخوام کتاب بخونم" in env.session.sent[-1]

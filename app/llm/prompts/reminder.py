@@ -13,8 +13,16 @@ Return JSON with:
 """
 
 IMPORTANCE_SYSTEM_PROMPT = """\
-Decide whether a personal reminder is important: something with real consequences if missed
-(health, doctor, medicine, money, bills, bank, travel, official papers, exams, interviews,
-important meetings, family events such as birthdays). Everyday chores are not important.
+Decide whether a personal reminder is important: missing it would have real consequences.
 The reminder may be in Persian or English. Return JSON: {"important": true|false}.
+
+Important (true): doctor or dentist appointment, taking medicine, paying bills / rent / loan,
+bank, flight or train, visa / passport / official papers, exam, job interview, work deadline,
+important meeting, birthday or anniversary of family.
+Not important (false): eating, drinking tea or coffee, reading, watching a show, shopping,
+cleaning, cooking, calling a friend, exercise, routine chores, short breaks.
+
+Examples:
+"چای بخورم" → false · "کتاب بخونم" → false · "نوبت دکتر" → true · "قسط وام" → true
+"water the plants" → false · "pay the electricity bill" → true
 """
