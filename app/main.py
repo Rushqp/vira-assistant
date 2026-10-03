@@ -14,6 +14,8 @@ from loguru import logger
 from pydantic import ValidationError
 
 from app import __version__, texts
+from app.agent.core import Agent
+from app.agent.tools import build_registry
 from app.bot.handlers import build_router
 from app.bot.middlewares.db import DbSessionMiddleware
 from app.bot.middlewares.logging import LoggingMiddleware
@@ -21,7 +23,7 @@ from app.bot.middlewares.menu_reset import MenuResetMiddleware
 from app.bot.middlewares.owner_only import OwnerOnlyMiddleware
 from app.config import Settings, get_settings
 from app.db.session import create_engine, create_sessionmaker, run_migrations
-from app.llm.client import LLMClient
+from app.llm.providers import ProviderChain
 from app.scheduler.jobs import catch_up_briefing
 from app.scheduler.setup import create_scheduler
 
@@ -43,8 +45,9 @@ def setup_logging(level: str) -> None:
     logging.basicConfig(handlers=[_InterceptHandler()], level=logging.INFO, force=True)
 
 
-def build_dispatcher(config: Settings, sessionmaker, llm: LLMClient) -> Dispatcher:
-    dp = Dispatcher(config=config, llm=llm)
+def build_dispatcher(config: Settings, sessionmaker, llm: ProviderChain) -> Dispatcher:
+    agent = Agent(llm, build_registry())
+    dp = Dispatcher(config=config, llm=llm, agent=agent)
     dp.update.outer_middleware(OwnerOnlyMiddleware(config.owner_id))
     dp.update.outer_middleware(LoggingMiddleware())
     dp.message.outer_middleware(MenuResetMiddleware())
@@ -56,7 +59,7 @@ def build_dispatcher(config: Settings, sessionmaker, llm: LLMClient) -> Dispatch
 async def run_bot(config: Settings) -> None:
     engine = create_engine(config.database_url)
     sessionmaker = create_sessionmaker(engine)
-    llm = LLMClient.from_settings(config)
+    llm = ProviderChain.from_settings(config)
 
     session = AiohttpSession(proxy=config.telegram_proxy) if config.telegram_proxy else None
     bot = Bot(
@@ -73,7 +76,11 @@ async def run_bot(config: Settings) -> None:
         )
         me = await bot.get_me()
         logger.info(
-            "Vira v{} started as @{} (profile={})", __version__, me.username, config.profile
+            "Vira v{} started as @{} (profile={}, models: {})",
+            __version__,
+            me.username,
+            config.profile,
+            llm.model,
         )
         await llm.check()  # informational only: the model may still be downloading
         scheduler.start()

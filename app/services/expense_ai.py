@@ -7,7 +7,7 @@ import asyncio
 
 from loguru import logger
 
-from app.llm.client import LLMClient, LLMError
+from app.llm.client import LanguageModel, LLMError
 from app.llm.prompts.expense import CATEGORIZE_SYSTEM_PROMPT, EXTRACT_SYSTEM_PROMPT
 from app.llm.schemas import EXPENSE_EXTRACT, expense_categories_schema
 
@@ -16,7 +16,7 @@ EXTRACT_TIMEOUT = 60
 
 
 async def categorize(
-    llm: LLMClient, descriptions: list[str], names: list[str]
+    llm: LanguageModel, descriptions: list[str], names: list[str]
 ) -> list[str | None] | None:
     """A category name (from `names`) for each description, or None if the LLM can't help."""
     numbered = "\n".join(f"{i + 1}. {d}" for i, d in enumerate(descriptions))
@@ -45,7 +45,7 @@ async def categorize(
     return result + [None] * (len(descriptions) - len(result))
 
 
-async def extract(llm: LLMClient, text: str) -> list[tuple[str, float]] | None:
+async def extract(llm: LanguageModel, text: str) -> list[tuple[str, float]] | None:
     """[(description, amount as written)] or None."""
     try:
         data = await asyncio.wait_for(

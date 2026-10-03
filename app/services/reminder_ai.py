@@ -8,7 +8,7 @@ from datetime import date, datetime, time
 
 from loguru import logger
 
-from app.llm.client import LLMClient, LLMError
+from app.llm.client import LanguageModel, LLMError
 from app.llm.prompts.reminder import EXTRACT_SYSTEM_PROMPT, IMPORTANCE_SYSTEM_PROMPT
 from app.llm.schemas import IMPORTANCE, REMINDER_EXTRACT
 from app.services.reminders import guess_important
@@ -18,7 +18,7 @@ IMPORTANCE_TIMEOUT = 30
 EXTRACT_TIMEOUT = 60
 
 
-async def classify_importance(llm: LLMClient, subject: str) -> bool:
+async def classify_importance(llm: LanguageModel, subject: str) -> bool:
     try:
         data = await asyncio.wait_for(
             llm.complete_json(
@@ -38,7 +38,7 @@ async def classify_importance(llm: LLMClient, subject: str) -> bool:
 
 
 async def extract_reminder(
-    llm: LLMClient, text: str, now: datetime
+    llm: LanguageModel, text: str, now: datetime
 ) -> tuple[str, date | None, time | None, bool] | None:
     """(subject, date, time, important) or None if the LLM can't help."""
     prompt = EXTRACT_SYSTEM_PROMPT.format(

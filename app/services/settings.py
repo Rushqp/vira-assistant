@@ -29,6 +29,12 @@ class SettingsService:
             row.value = value
         await self.session.commit()
 
+    async def unset(self, key: str) -> None:
+        row = await self.session.get(Setting, key)
+        if row is not None:
+            await self.session.delete(row)
+            await self.session.commit()
+
     async def get_calendar(self) -> Calendar:
         value = await self.get(KEY_CALENDAR)
         try:

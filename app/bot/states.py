@@ -24,3 +24,11 @@ class ExpenseForm(StatesGroup):
 
 class CategoryForm(StatesGroup):
     name = State()  # ⚙️ Settings → 🏷 Categories → ➕ Add: waiting for "emoji name"
+
+
+class AgentForm(StatesGroup):
+    """Context for the next free-text message sent to the agent (data: "hint" / "edit_action")."""
+
+    hint = State()  # ⏰ New Reminder / 💰 Add Expense was tapped
+    edit = State()  # ✏️ Edit was tapped on a result card
+    pending = State()  # waiting for "thousand or million?" (data: "agent_pending" draft)

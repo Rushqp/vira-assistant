@@ -7,25 +7,49 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.4.0] - 2026-10-04
 
 ### Added
-- 💰 **Expenses** from free text (Persian or English) or the 💰 Add Expense form
-  - Several items in one message: «۳ میلیون خرید خونه دادم، ۱۰ لیتر بنزین هم ۱۰۰ تومن» → 2 records
-  - Amount parser (`app/core/parsers/amount_parser.py`): «۳ میلیون», «۲ و نیم میلیون», `2.5 میلیون`,
-    «دو میلیون و پونصد» (= 2,500,000), `100k`, `1.2m`, `450,000 تومن`, toman / rial conversion
-  - Amounts without thousand / million («۳ تومن», `150`) are asked with two buttons
-  - Quantities and units: «۱۰ لیتر», «۲ کیلو», «۳ تا», "10 liters"
-  - Dates: «دیروز», «شنبه» (last Saturday), «۱ مهر» are recorded on that day
-  - Confirmation card with Save / 🏷 Category / Edit / Cancel, and ↩️ Undo after saving
-  - LLM extraction when the rules find no amount
-- 🏷 **Categories**: 13 defaults (Groceries, Food, Restaurant, Home, Fuel, Transport, Bills, Health,
-  Clothing, Education, Gifts, Leisure, Other); chosen by built-in keywords, then the LLM; corrections
-  are **learned** for next time; add / delete in ⚙️ Settings → 🏷 Categories
+- 🧠 **AI agent** (`app/agent`, design in `docs/AGENT_DESIGN.md`): every free-text message is
+  understood by a model that calls typed tools, instead of keyword rules
+  - Understands any phrasing, typos and colloquial Persian, several requests in one message, and
+    follow-ups that refer to earlier messages («تایم دکتر رو کنسل کن», «نه، ماست ۲۵۰ هزار بود»)
+  - 12 tools: add / list / update / delete expenses, create / list / update / cancel reminders,
+    reports, Jalali ↔ Gregorian dates, calculator, settings
+  - Every tool call is validated; amounts and dates are re-checked with the deterministic parsers;
+    errors go back to the model so it can fix them or ask the user
+  - Acts directly and shows a card for each real result with **↩️ Undo** and **✏️ Edit**; undo
+    survives restarts (`agent_actions`, migration `0006`)
+  - Asks only when needed: amounts without thousand / million («۳ تومن») still get buttons (typing
+    «هزار» / «میلیون» works too); a reminder without a notification time notifies at the start and
+    offers buttons for earlier alerts
+  - A claim of an action without a tool call gets one corrective retry
+  - The model never computes dates: each message carries a dates table in both calendars
+- 🔀 **Free AI providers with failover** (`app/llm/providers.py`): Gemini → Groq → GitHub Models →
+  local model, in `LLM_PROVIDERS` order; providers that fail or hit their free quota are paused
+  (`Retry-After`, growing back-off) and the next one answers
+- New settings: `LLM_PROVIDERS`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `GROQ_API_KEY`, `GROQ_MODEL`,
+  `GITHUB_TOKEN`, `GITHUB_MODEL`, `LOCAL_TOOLS`
+- `scripts/eval_agent.py`: accuracy and latency of each configured model on real Persian / English
+  cases (including reported failures), to choose models per hardware profile on the real server
+- 💰 **Expenses**: several items in one message, quantities («۱۰ لیتر»), past days («دیروز»,
+  «شنبه»), amount parser («۲ و نیم میلیون», «دو میلیون و پونصد» = 2,500,000, `100k`, `1.2m`,
+  toman / rial)
+- 🏷 **Categories**: 13 defaults; chosen by the AI (learned corrections first, keywords as a
+  fallback); corrections are **learned**; add / delete in ⚙️ Settings → 🏷 Categories
 - 📊 **Reports**: today (each expense with 🗑), week and month following the selected calendar
   (Jalali month / Saturday-first week, or Gregorian / Monday-first): total, comparison with the same
   days of the previous period, daily average, per-category text bars, largest expense; ◀️ ▶️
-  navigation; text requests such as «گزارش این هفته», "report last month", «چقدر خرج کردم»
-- Migration `0005`: `categories` (with defaults), `category_keywords`, `expenses`
+- Migrations `0005` (categories, learned keywords, expenses) and `0006` (agent actions)
+
+### Changed
+- Local models per profile: `standard` → `qwen3:4b`, `full` → `qwen3:8b` (native tool calling);
+  `lite` keeps `gemma3:1b` for chat only
+- `PROFILE=remote` works with just an API key (or a custom `LLM_MODEL` as before)
+- The v0.3 rule-based understanding is kept as the fallback when no tool-capable model is reachable
+- ⚙️ Settings shows the AI provider chain
 
 ### Fixed
+- Reported: «یک یاد اوری تنظیم کن برای ۵ دقیقه دیگه …» went to the chat
+- Reported: «امروز ۳ خرید کردم …» asked "3 thousand or 3 million?" for the count «۳»
+- Reported: a reminder could not be cancelled by a follow-up message
 - Number words: «دو میلیون و پونصد» now means 2,500,000 (was 2,000,500); a scale word without a
   number («میلیون‌ها») is no longer turned into 1000000
 

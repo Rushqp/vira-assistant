@@ -91,6 +91,7 @@ LLM_ERRORS = {
     "unreachable": "⚠️ The AI model isn't reachable right now. Please try again in a moment.",
     "model_missing": "⚠️ The model {model} isn't available. Has it finished downloading?",
     "failed": "⚠️ The AI model failed to answer. Please try again.",
+    "rate_limited": "⚠️ The free AI quota is used up for now. Please try again in a minute.",
 }
 
 # --- Reminders: creating ---
@@ -256,6 +257,30 @@ CATEGORY_PROTECTED = "Other can't be deleted."
 BTN_CATEGORIES = "🏷 Categories"
 BTN_ADD_CATEGORY = "➕ Add category"
 
+# --- Agent results ---
+AGENT_EXPENSES_SAVED = "✅ <b>Saved</b>"
+AGENT_EXPENSES_DELETED = "🗑 <b>Deleted</b>"
+AGENT_EXPENSE_UPDATED = "✏️ <b>Updated</b>"
+AGENT_REMINDER_SAVED = "⏰ <b>Reminder saved</b>\n\n{card}"
+AGENT_REMINDER_UPDATED = "✏️ <b>Reminder updated</b>\n\n{card}"
+AGENT_REMINDERS_CANCELLED = "🗑 <b>Cancelled</b>"
+AGENT_LIST_ITEM = "• {text}"
+AGENT_SETTINGS_CHANGED = "⚙️ <b>Settings changed</b>"
+AGENT_SETTING_CALENDAR = "📅 Calendar: {value}"
+AGENT_SETTING_BRIEFING = "☀️ Morning briefing: {value}"
+AGENT_ASK_ALERTS = "\n\n🔔 <i>Notifies at the start. Want an earlier reminder too?</i>"
+AGENT_UNDONE_LINE = "\n\n↩️ <i>Undone</i>"
+AGENT_ALREADY_UNDONE = "This was already undone."
+AGENT_EDIT_PROMPT = (
+    "✏️ What should I change?\n<i>e.g. «مبلغش ۲۵۰ هزار بود» · «بذارش برای ساعت ۵» · "
+    "change it to Friday</i>"
+)
+AGENT_EDIT_HINT = "[The user is correcting this earlier action: {summary}]"
+AGENT_HINT_REMINDER = "[The user tapped ⏰ New Reminder: this message describes a reminder]"
+AGENT_HINT_EXPENSE = "[The user tapped 💰 Add Expense: this message describes expenses]"
+AGENT_THINKING = "💭"
+BTN_ALERT_ADD = "＋ {label}"
+
 # --- Settings ---
 SETTINGS = (
     "⚙️ <b>Settings</b>\n\n"
@@ -263,7 +288,7 @@ SETTINGS = (
     "🕒 Timezone: <b>{timezone}</b>\n"
     "🗓 Today: <b>{today}</b>\n"
     "☀️ Morning briefing: <b>{briefing}</b>\n"
-    "🤖 Model: <b>{model}</b> <i>({profile} profile)</i>\n"
+    "🤖 AI: <b>{model}</b> <i>({profile} profile)</i>\n"
     "🎙 Voice: <b>{stt}</b>"
 )
 BRIEFING_ON = "on ({time})"

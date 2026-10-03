@@ -14,8 +14,8 @@ def make(**overrides) -> Settings:
     ("profile", "llm", "stt"),
     [
         (Profile.LITE, "gemma3:1b", "tiny"),
-        (Profile.STANDARD, "qwen2.5:3b", "base"),
-        (Profile.FULL, "qwen2.5:7b", "small"),
+        (Profile.STANDARD, "qwen3:4b", "base"),
+        (Profile.FULL, "qwen3:8b", "small"),
     ],
 )
 def test_profile_defaults(profile, llm, stt):
@@ -35,7 +35,7 @@ def test_empty_strings_mean_unset():
     assert s.llm_model is None
     assert s.stt_model is None
     assert s.telegram_proxy is None
-    assert s.effective_llm_model == "qwen2.5:3b"
+    assert s.effective_llm_model == "qwen3:4b"
 
 
 def test_defaults():
@@ -66,11 +66,22 @@ def test_invalid_profile_rejected():
         make(profile="huge")
 
 
-def test_remote_profile_requires_model():
-    with pytest.raises(ValidationError, match="LLM_MODEL is required"):
+def test_remote_profile_needs_an_api_key_or_model():
+    with pytest.raises(ValidationError, match="PROFILE=remote needs an API key"):
         make(profile="remote")
     s = make(profile="remote", llm_model="gpt-4o-mini", llm_base_url="https://api.example.com/v1")
     assert s.effective_llm_model == "gpt-4o-mini"
+    s = make(profile="remote", gemini_api_key="key")
+    assert s.api_providers == ["gemini"]
+
+
+def test_api_providers_and_models():
+    s = make(gemini_api_key="g", groq_api_key="q", groq_model="qwen/qwen3-32b")
+    assert s.api_providers == ["gemini", "groq"]
+    assert s.provider_model("gemini") == "gemini-flash-latest"
+    assert s.provider_model("groq") == "qwen/qwen3-32b"
+    assert s.provider_key("github") is None
+    assert make(gemini_api_key="  ").api_providers == []
 
 
 def test_chat_memory_bounds():

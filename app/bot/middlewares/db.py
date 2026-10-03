@@ -7,8 +7,8 @@ from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agent.actions import ActionLog
 from app.config import Settings
-from app.llm.client import LLMClient
 from app.services.chat import ChatService
 from app.services.expenses import ExpenseService
 from app.services.reminders import ReminderService
@@ -17,7 +17,7 @@ from app.services.settings import SettingsService
 
 class DbSessionMiddleware(BaseMiddleware):
     def __init__(
-        self, sessionmaker: async_sessionmaker[AsyncSession], config: Settings, llm: LLMClient
+        self, sessionmaker: async_sessionmaker[AsyncSession], config: Settings, llm
     ) -> None:
         self.sessionmaker = sessionmaker
         self.config = config
@@ -44,5 +44,8 @@ class DbSessionMiddleware(BaseMiddleware):
             )
             data["expense_service"] = ExpenseService(
                 session, self.config.timezone, self.config.currency.value
+            )
+            data["action_log"] = ActionLog(
+                session, data["expense_service"], data["reminder_service"], data["settings_service"]
             )
             return await handler(event, data)

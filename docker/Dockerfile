@@ -18,6 +18,7 @@ RUN python -c "import tomllib; print('\n'.join(tomllib.load(open('pyproject.toml
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY app ./app
+COPY scripts ./scripts
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && mkdir -p /app/data && chown -R vira:vira /app/data
 

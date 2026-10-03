@@ -6,6 +6,7 @@ from aiogram.types import CallbackQuery, Message
 from app import texts
 from app.bot.keyboards.inline import SettingsCb, settings_menu
 from app.config import Calendar, Settings
+from app.llm.providers import describe_providers
 from app.services.settings import SettingsService
 from app.utils.calendar import format_date, now_local
 
@@ -28,7 +29,7 @@ def render_settings(config: Settings, calendar: Calendar, briefing: bool = True)
         timezone=config.tz,
         today=format_date(now_local(config.timezone).date(), calendar),
         briefing=briefing_text,
-        model=config.effective_llm_model,
+        model=describe_providers(config),
         profile=config.profile.value,
         stt=stt,
     )

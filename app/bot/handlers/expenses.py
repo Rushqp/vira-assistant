@@ -1,6 +1,7 @@
-"""💰 Expenses: record one or several from free text or the form, with confirmation and undo.
+"""💰 Expenses: the rule-based conversation (fallback when no model is available).
 
-The conversation is driven by `ExpenseDraft.next_step()`:
+Free text is understood by the agent (app/agent). This conversation is used when no model is
+available (`start`), driven by `ExpenseDraft.next_step()`:
 missing amount? → thousand or million? → category (keywords → learned → LLM) → confirm.
 The draft is kept in the FSM data under "expense".
 """
@@ -24,12 +25,12 @@ from app.bot.keyboards.inline import (
     expense_saved,
     expense_scale,
 )
-from app.bot.states import ExpenseForm
+from app.bot.states import AgentForm, ExpenseForm
 from app.config import Calendar, Settings
 from app.core.normalizer import normalize
 from app.core.parsers.amount_parser import find_amounts
-from app.core.parsers.expense_rules import has_expense_intent, parse_expenses
-from app.llm.client import LLMClient
+from app.core.parsers.expense_rules import parse_expenses
+from app.llm.client import LanguageModel
 from app.services import expense_ai
 from app.services.expenses import DraftItem, ExpenseDraft, ExpenseService
 from app.services.settings import SettingsService
@@ -43,7 +44,7 @@ router = Router(name="expenses")
 class Flow:
     config: Settings
     state: FSMContext
-    llm: LLMClient
+    llm: LanguageModel
     service: ExpenseService
     calendar: Calendar
 
@@ -162,14 +163,16 @@ async def start(message: Message, flow: Flow, text: str) -> None:
 
 @router.message(F.text == texts.BTN_ADD_EXPENSE)
 async def add_expense(message: Message, state: FSMContext) -> None:
+    # The next message goes to the agent with a hint (or to `start` if no model is available).
     await state.clear()
-    await state.set_state(ExpenseForm.describe)
+    await state.set_state(AgentForm.hint)
+    await state.update_data(hint="expense")
     await message.answer(texts.EXPENSE_ASK_DESCRIBE)
 
 
 @router.message(ExpenseForm.describe, F.text)
 async def describe(
-    message: Message, state: FSMContext, config: Settings, llm: LLMClient,
+    message: Message, state: FSMContext, config: Settings, llm: LanguageModel,
     expense_service: ExpenseService, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     await state.set_data({})
@@ -179,7 +182,7 @@ async def describe(
 
 @router.message(ExpenseForm.amount, F.text)
 async def got_amount(
-    message: Message, state: FSMContext, config: Settings, llm: LLMClient,
+    message: Message, state: FSMContext, config: Settings, llm: LanguageModel,
     expense_service: ExpenseService, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     draft = await _load(state)
@@ -201,16 +204,6 @@ async def got_amount(
     await advance(message, flow, draft)
 
 
-@router.message(F.text.func(has_expense_intent), ~F.text.startswith("/"))
-async def expense_from_text(
-    message: Message, state: FSMContext, config: Settings, llm: LLMClient,
-    expense_service: ExpenseService, settings_service: SettingsService,
-) -> None:  # fmt: skip
-    await state.clear()
-    flow = await _flow(config, state, llm, expense_service, settings_service)
-    await start(message, flow, message.text or "")
-
-
 # --- Buttons ---
 
 
@@ -228,7 +221,7 @@ async def _query_flow(
 @router.callback_query(ExpCb.filter(F.action == "scale"))
 async def pick_scale(
     query: CallbackQuery, callback_data: ExpCb, state: FSMContext, config: Settings,
-    llm: LLMClient, expense_service: ExpenseService, settings_service: SettingsService,
+    llm: LanguageModel, expense_service: ExpenseService, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, expense_service, settings_service)
     if loaded is None:
@@ -247,7 +240,7 @@ async def pick_scale(
 @router.callback_query(ExpCb.filter(F.action.in_({"category", "back"})))
 async def open_category_picker(
     query: CallbackQuery, callback_data: ExpCb, state: FSMContext, config: Settings,
-    llm: LLMClient, expense_service: ExpenseService, settings_service: SettingsService,
+    llm: LanguageModel, expense_service: ExpenseService, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, expense_service, settings_service)
     if loaded is None:
@@ -275,7 +268,7 @@ async def _show_categories(message: Message, flow: Flow, draft: ExpenseDraft, in
 @router.callback_query(ExpCb.filter(F.action == "pick"))
 async def pick_item(
     query: CallbackQuery, callback_data: ExpCb, state: FSMContext, config: Settings,
-    llm: LLMClient, expense_service: ExpenseService, settings_service: SettingsService,
+    llm: LanguageModel, expense_service: ExpenseService, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, expense_service, settings_service)
     if loaded is None:
@@ -289,7 +282,7 @@ async def pick_item(
 @router.callback_query(ExpCb.filter(F.action == "setcat"))
 async def set_category(
     query: CallbackQuery, callback_data: ExpCb, state: FSMContext, config: Settings,
-    llm: LLMClient, expense_service: ExpenseService, settings_service: SettingsService,
+    llm: LanguageModel, expense_service: ExpenseService, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, expense_service, settings_service)
     if loaded is None:
@@ -305,7 +298,7 @@ async def set_category(
 
 @router.callback_query(ExpCb.filter(F.action == "save"))
 async def save(
-    query: CallbackQuery, state: FSMContext, config: Settings, llm: LLMClient,
+    query: CallbackQuery, state: FSMContext, config: Settings, llm: LanguageModel,
     expense_service: ExpenseService, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, expense_service, settings_service)

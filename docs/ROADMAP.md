@@ -29,9 +29,9 @@ Dates are shown in **Gregorian or Jalali (Shamsi)** — switchable by the user i
 |---|---|
 | Hosting | Anywhere; the host's network is assumed to reach Telegram (optional proxy in `.env`) |
 | Deployment | **Docker Compose** |
-| AI | **Local (Ollama)** — model switchable via `.env`; any OpenAI-compatible API also supported |
+| AI | **Free API providers first** (Gemini → Groq → GitHub Models), **local Ollama** as fallback; all OpenAI-compatible, order in `.env` (decided in v0.4) |
 | Hardware | **Selectable profiles**: `lite` / `standard` / `full` (+ `remote`) |
-| Language processing | **Hybrid**: rule-based parser first, LLM only when needed |
+| Language processing | **AI agent with typed tools** (v0.4); deterministic parsers validate amounts/dates and remain the fallback when no model is reachable — see `docs/AGENT_DESIGN.md` |
 | Users | **Single-user** (only `OWNER_ID` is allowed) |
 | Extras | Voice → text, Excel/CSV export, full basic-assistant feature set |
 | UI language | **English** (all buttons and bot messages) |
@@ -43,6 +43,9 @@ Dates are shown in **Gregorian or Jalali (Shamsi)** — switchable by the user i
 
 ## 3. High-Level Architecture
 
+> Since v0.4 the understanding layer is an **AI agent**; the full design, research and trade-offs
+> are in [`AGENT_DESIGN.md`](AGENT_DESIGN.md).
+
 ```
                  ┌──────────────────────────┐
                  │   User in Telegram       │
@@ -51,33 +54,34 @@ Dates are shown in **Gregorian or Jalali (Shamsi)** — switchable by the user i
                               │ Long polling (no public IP / SSL needed)
                               ▼
 ┌──────────────────────── docker-compose ────────────────────────────────┐
-│                                                                         │
 │  ┌─────────────── bot (Python 3.12 / aiogram 3) ───────────────────┐   │
-│  │                                                                  │   │
-│  │  handlers ──► [ voice? ] ──► stt (faster-whisper) ──┐            │   │
-│  │                                                      ▼            │   │
-│  │                normalizer (fa/en digits, dates, amounts)          │   │
-│  │                                ▼                                  │   │
-│  │                    rule parser (regex + patterns)                 │   │
-│  │               confident? ──yes──►  service                        │   │
-│  │                    │ no                                           │   │
-│  │                    ▼                                              │   │
-│  │         llm router (JSON-Schema output) ─────────────► ollama ◄──┼───┤
-│  │                    ▼                                              │   │
-│  │     confirm (inline buttons: ✅ Save / ✏️ Edit / ❌ Cancel)        │   │
-│  │                    ▼                                              │   │
-│  │  services: reminders · expenses · reports · notes · todos · chat  │   │
-│  │                    ▼                         ▲                    │   │
-│  │             SQLite (volume)  ◄──── scheduler (APScheduler)        │   │
+│  │  handlers ──► [ voice? ] ──► stt (faster-whisper, v0.6)          │   │
+│  │      │                                                            │   │
+│  │      ▼                                                            │   │
+│  │  agent: system prompt + transcript + [dates table fa/en] + text   │   │
+│  │      │                                                            │   │
+│  │      ▼                                                            │   │
+│  │  provider chain ── Gemini → Groq → GitHub Models → local ─────────┼─► free APIs
+│  │      │                         (failover, cooldowns)       └──────┼─► ollama
+│  │      ▼                                                            │   │
+│  │  typed tools ── validated by deterministic parsers (dates, amounts)│  │
+│  │      ▼                                                            │   │
+│  │  services: reminders · expenses · reports · settings · chat       │   │
+│  │      ▼                          ▲                                 │   │
+│  │  SQLite (volume) ◄──── scheduler (APScheduler, no AI needed)      │   │
+│  │      ▼                                                            │   │
+│  │  result cards with ↩️ Undo / ✏️ Edit                               │   │
+│  │                                                                   │   │
+│  │  no model reachable → rule-based pipeline (v0.3) as fallback      │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
-│                                                                         │
 │  ┌────────── ollama ──────────┐     volumes: ./data  ./models            │
 │  │ model per profile          │     (Ollama port is never exposed)       │
 │  └────────────────────────────┘                                          │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Design principle:** frequent actions (reminders, expenses, reports) must work **without the LLM and in milliseconds**. The LLM is only called for complex sentences and open questions — this is what makes the bot usable on weak hardware.
+**Design principles:** the model decides, the app verifies and acts; cards show only real results;
+the model never does date or currency arithmetic; reminders never depend on a model.
 
 ---
 
@@ -88,8 +92,8 @@ Dates are shown in **Gregorian or Jalali (Shamsi)** — switchable by the user i
 | Language | Python 3.12 | All bot logic |
 | Telegram bot | **aiogram 3** | Handlers, Reply/Inline keyboards, FSM for multi-step forms |
 | Local LLM | **Ollama** | CPU model inference; OpenAI-compatible API |
-| LLM client | `openai` SDK (custom `base_url`) | One client for Ollama, OpenRouter, Gemini, etc. |
-| Structured output | Ollama `format` (JSON Schema) | Sentence → `{intent, datetime, amount, ...}`; more reliable than tool calling on small models |
+| LLM client | `openai` SDK (custom `base_url`) | One client per provider (Gemini, Groq, GitHub Models, Ollama, OpenRouter …) + failover chain |
+| Agent | OpenAI-style tool calling + Pydantic validation | Typed tools; arguments re-checked by deterministic parsers |
 | Speech-to-text | **faster-whisper** (CTranslate2, int8) | Persian + English voice transcription on CPU |
 | Audio conversion | ffmpeg | Telegram OGG/Opus → WAV |
 | Scheduling | **APScheduler** (in-memory) | A 20-second job sends due alerts stored in SQLite (the DB is the source of truth, so nothing is lost on restart) + daily jobs |
@@ -108,18 +112,21 @@ Dates are shown in **Gregorian or Jalali (Shamsi)** — switchable by the user i
 
 ## 5. Hardware Profiles
 
-Selected with one variable: `PROFILE=lite | standard | full | remote` (or override `LLM_MODEL` / `STT_MODEL` manually).
+Selected with one variable: `PROFILE=lite | standard | full | remote` (or override `LLM_MODEL` /
+`STT_MODEL`). With a free API key the agent runs on the API in every profile; the local model is
+the fallback (or the brain, without keys).
 
-| Profile | Suggested RAM | Default LLM | Whisper model | Notes |
+| Profile | Suggested RAM | Local model | Whisper model | Without an API key |
 |---|---|---|---|---|
-| `lite` | 2 GB | `gemma3:1b` | `tiny` | Parser + short answers; limited Persian quality |
-| `standard` | 4 GB | `qwen2.5:3b` | `base` | Speed/quality balance (default) |
-| `full` | 8 GB+ | `qwen2.5:7b` (Q4) | `small` | Better Persian and sentence understanding |
-| `remote` | — | Any external API model | — | Ollama not started; uses `LLM_BASE_URL` + `LLM_API_KEY` |
+| `lite` | 2 GB | `gemma3:1b` (chat only) | `tiny` | rule-based understanding + local chat |
+| `standard` | 4 GB | `qwen3:4b` (agent, tools) | `base` | local agent (slow on CPU) |
+| `full` | 8 GB+ | `qwen3:8b` (agent, tools) | `small` | local agent |
+| `remote` | — | — | — | needs an API key or a custom `LLM_MODEL` |
 
 - Models are pulled automatically on first start (`ollama pull` in an init service).
 - STT can be disabled entirely with `STT_ENABLED=false`.
-- ⚠️ Default models will be benchmarked on real hardware before v0.2 and replaced if needed.
+- `scripts/eval_agent.py` benchmarks accuracy and latency of every configured model on real
+  Persian/English cases; run it on the target server before changing defaults.
 
 ---
 
@@ -201,22 +208,22 @@ Selected with one variable: `PROFILE=lite | standard | full | remote` (or overri
 ## 8. Message Processing Pipeline
 
 ```
-message ─► (voice? → STT) ─► normalize ─► rule-based parser
-                                              │
-                         ┌────────────────────┴───────────────────┐
-                   high confidence                          low confidence
-                         │                                         │
-                         │                     LLM → JSON Schema {intent, slots}
-                         │                                         │
-                         └──────────────► validate slots ◄─────────┘
-                                              │ missing? → follow-up question (FSM)
-                                              ▼
-                                   confirm with inline buttons
-                                              ▼
-                                     service → database
+message ─► (voice? → STT) ─► instant tools (calculator, today's date)
+                                  │ otherwise
+                                  ▼
+                 agent: model + tools (max 4 rounds per message)
+                   │  tool call → validate (Pydantic + deterministic parsers)
+                   │            → service → database → result back to the model
+                   │  missing / ambiguous → the model asks, or the app shows buttons
+                   ▼
+          short answer in the user's language + result cards (↩️ Undo / ✏️ Edit)
+
+  no tool-capable model reachable → rule-based parser (normalizer → rules → forms)
 ```
 
-**Intents:** `reminder.create` · `reminder.list` · `expense.add` · `report.get` · `export.get` · `note.add` · `todo.add` · `chat` · `unknown`
+**Tools:** `add_expenses` · `list_expenses` · `update_expense` · `delete_expenses` · `get_report` ·
+`create_reminder` · `list_reminders` · `update_reminder` · `cancel_reminders` · `convert_date` ·
+`calculate` · `update_settings` (export, notes and to-dos become tools in later versions)
 
 ### Input normalization (Persian + English)
 - Persian/Arabic digits → ASCII; `ي/ك` → `ی/ک`; zero-width non-joiner handling
@@ -246,7 +253,8 @@ message ─► (voice? → STT) ─► normalize ─► rule-based parser
 | `notes` | id, text, tags, created_at |
 | `todos` | id, text, due_date, done, created_at |
 | `chat_sessions` | id, title, started_at, updated_at, ended_at |
-| `chat_history` | id, session_id, role, content, created_at (capped) |
+| `chat_history` | id, session_id, role, content, created_at (capped; assistant lines carry `[done: …]` action notes for references) |
+| `agent_actions` | id, kind, payload (JSON), summary, created_at, undone_at — undo log of the agent |
 
 All timestamps are stored in **UTC** and displayed in the user's timezone (default Asia/Tehran) using the **selected calendar** (Gregorian or Jalali).
 
@@ -260,26 +268,35 @@ vira-assistant/
 │   ├── main.py                 # entry point
 │   ├── config.py               # pydantic-settings
 │   ├── texts.py                # all English UI strings
+│   ├── agent/                  # the AI agent (v0.4)
+│   │   ├── core.py             # loop: model → tools → results → answer
+│   │   ├── tools/              # expenses, reminders, general (reports, dates, settings)
+│   │   ├── actions.py          # undo log
+│   │   ├── context.py          # per-message dates table (Gregorian = Jalali)
+│   │   └── prompt.py           # system prompt
 │   ├── bot/
-│   │   ├── handlers/           # start, menu, chat, chats, reminders, expenses, reports, categories, notes, voice, settings, fallback
+│   │   ├── handlers/           # assistant (free text → agent), start, menu, chat, chats, reminders, expenses, reports, categories, settings, fallback (+ notes, voice later)
+│   │   ├── agent_ui.py         # result cards with Undo / Edit
 │   │   ├── keyboards/          # reply.py, inline.py
-│   │   ├── views.py            # message rendering (reminder cards, notifications, briefing)
+│   │   ├── views.py            # message rendering (reminder cards, notifications, briefing, reports)
 │   │   ├── streaming.py        # streamed LLM answers via message edits
 │   │   ├── states.py           # FSM states
 │   │   └── middlewares/        # owner_only.py, logging.py, db.py, menu_reset.py
 │   ├── core/
 │   │   ├── normalizer.py       # fa/en digits, number words, ZWNJ
-│   │   ├── parsers/            # datetime_parser.py, rules.py, amount_parser.py, expense_rules.py (fa + en)
-│   │   └── router.py           # rule vs LLM routing
+│   │   ├── textmatch.py        # fuzzy references to stored items
+│   │   └── parsers/            # datetime_parser.py, rules.py, amount_parser.py, expense_rules.py (fa + en)
 │   ├── llm/
-│   │   ├── client.py           # OpenAI-compatible client
-│   │   ├── prompts/            # system/intent prompts (bilingual)
-│   │   └── schemas.py          # intent JSON schemas
-│   ├── stt/whisper.py
+│   │   ├── client.py           # one OpenAI-compatible endpoint (tools, streaming)
+│   │   ├── providers.py        # failover chain of free APIs + local model
+│   │   ├── prompts/            # helper prompts (bilingual)
+│   │   └── schemas.py          # JSON schemas for structured output
+│   ├── stt/whisper.py          # v0.6
 │   ├── services/               # reminders, reminder_ai, expenses, expense_ai, reports, export, notes, todos, chat, tools
 │   ├── scheduler/              # jobs.py, setup.py
 │   ├── db/                     # models.py, session.py
 │   └── utils/                  # calendar.py (Gregorian/Jalali), formatting.py
+├── scripts/eval_agent.py       # accuracy / latency benchmark of the configured models
 ├── migrations/                 # Alembic
 ├── tests/                      # parser and service tests
 ├── docker/
@@ -288,6 +305,7 @@ vira-assistant/
 │   └── ollama-init.sh          # pulls models per profile
 ├── docs/
 │   ├── ROADMAP.md              # this document
+│   ├── AGENT_DESIGN.md         # agent design, research, trade-offs
 │   ├── INSTALL.md
 │   └── screenshots/
 ├── .github/workflows/ci.yml
@@ -345,7 +363,7 @@ TELEGRAM_PROXY=             # optional: socks5://host:port
 | **v0.1.0** | Project skeleton, Docker Compose, `/start`, English button menu, owner middleware, SQLite + Alembic, settings (calendar toggle), CI | `docker compose up` starts the bot and the menu appears |
 | **v0.2.0** | Ollama service + profiles, LLM client, chat with short memory + New Chat | Simple Persian and English questions get answers; model switchable via `.env` |
 | **v0.3.0** | Normalizer + fa/en date/time parser (both calendars), reminders (create/list/delete/repeat/snooze), scheduler, morning briefing (reminders), previous chats | "Doctor tomorrow at 2, remind me in the morning" is saved and delivered correctly |
-| **v0.4.0** | Amount parser, expenses (multi-item), categories, daily/monthly reports | The groceries + fuel example creates two correct records |
+| **v0.4.0** | **AI agent with tools + free provider chain**, amount parser, expenses (multi-item), categories, daily/monthly reports | The groceries + fuel example creates two correct records |
 | **v0.5.0** | Excel/CSV export, nightly report, morning briefing | Current month's Excel file is received |
 | **v0.6.0** | Voice → text (faster-whisper) | Persian and English voice is processed like text |
 | **v0.7.0** | Notes, to-dos, settings, backup | All menu buttons functional |

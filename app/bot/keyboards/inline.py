@@ -405,3 +405,79 @@ def category_delete_confirm(cid: int) -> InlineKeyboardMarkup:
             ]
         ]
     )
+
+
+# --- Agent results ---
+
+
+class ActCb(CallbackData, prefix="act"):
+    # undo | edit | alert | cat | setcat | scale
+    action: str
+    aid: int = 0  # agent action id
+    value: str = ""
+
+
+def _act(text: str, action: str, aid: int = 0, value: str = "") -> InlineKeyboardButton:
+    return InlineKeyboardButton(
+        text=text, callback_data=ActCb(action=action, aid=aid, value=value).pack()
+    )
+
+
+def action_buttons(
+    aid: int,
+    *,
+    edit: bool = True,
+    category: bool = False,
+    alerts: list[tuple[str, str]] | None = None,
+    selected: list[str] | None = None,
+) -> InlineKeyboardMarkup:
+    """↩️ Undo / ✏️ Edit (+ 🏷 Category, + alert options for a new reminder)."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if alerts:
+        chosen = selected or []
+        buttons = [
+            _act(
+                (texts.BTN_SELECTED + label)
+                if spec in chosen
+                else texts.BTN_ALERT_ADD.format(label=label),
+                "alert",
+                aid,
+                str(i),
+            )
+            for i, (spec, label) in enumerate(alerts)
+            if spec != "at"
+        ]
+        rows += [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    main = [_act(texts.BTN_UNDO, "undo", aid)]
+    if edit:
+        main.append(_act(texts.BTN_EDIT, "edit", aid))
+    if category:
+        main.append(_act(texts.BTN_CATEGORY, "cat", aid))
+    rows.append(main)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def saved_expense_items(aid: int, items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    rows = [
+        [_act(f"{n}. {label}"[:60], "cat", aid, str(eid))]
+        for n, (eid, label) in enumerate(items, 1)
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def saved_expense_categories(
+    aid: int, expense_id: int, categories: list[tuple[int, str]]
+) -> InlineKeyboardMarkup:
+    buttons = [_act(label, "setcat", aid, f"{expense_id}.{cid}") for cid, label in categories]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    )
+
+
+def agent_scale(thousand: str, million: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [_act(thousand, "scale", value="k"), _act(million, "scale", value="m")],
+            [_act(texts.BTN_CANCEL, "scale", value="cancel")],
+        ]
+    )

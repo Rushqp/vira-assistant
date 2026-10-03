@@ -1,6 +1,7 @@
 import pytest
 
 from app.bot.handlers import (
+    assistant,
     categories,
     chat,
     chats,
@@ -50,6 +51,7 @@ def detach_routers():
         reports,
         expenses,
         chat,
+        assistant,
         fallback,
     ):
         module.router._parent_router = None

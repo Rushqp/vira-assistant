@@ -1,4 +1,8 @@
-"""📊 Reports: today / week / month (selected calendar), navigation, and deleting expenses."""
+"""📊 Reports: today / week / month (selected calendar), navigation, and deleting expenses.
+
+Free-text requests («گزارش این ماه») are understood by the agent (`get_report` tool) or, when no
+model is available, by the rule-based fallback; both render with `render_report`.
+"""
 
 import html
 
@@ -9,7 +13,7 @@ from app import texts
 from app.bot import views
 from app.bot.keyboards.inline import RepCb, report_delete_confirm, report_nav
 from app.config import Settings
-from app.core.parsers.expense_rules import Period, parse_report_request
+from app.core.parsers.expense_rules import Period
 from app.services.expenses import ExpenseService
 from app.services.reports import Kind, ReportService
 from app.services.settings import SettingsService
@@ -29,7 +33,7 @@ PERIODS: dict[Period, tuple[Kind, int]] = {
 }
 
 
-async def _render(
+async def render_report(
     kind: Kind,
     offset: int,
     config: Settings,
@@ -50,17 +54,7 @@ async def report_button(
     settings_service: SettingsService,
 ) -> None:  # fmt: skip
     kind: Kind = "day" if message.text == texts.BTN_TODAY_REPORT else "month"
-    text, markup = await _render(kind, 0, config, expense_service, settings_service)
-    await message.answer(text, reply_markup=markup)
-
-
-@router.message(F.text.func(parse_report_request), ~F.text.startswith("/"))
-async def report_from_text(
-    message: Message, config: Settings, expense_service: ExpenseService,
-    settings_service: SettingsService,
-) -> None:  # fmt: skip
-    kind, offset = PERIODS[parse_report_request(message.text or "") or "today"]
-    text, markup = await _render(kind, offset, config, expense_service, settings_service)
+    text, markup = await render_report(kind, 0, config, expense_service, settings_service)
     await message.answer(text, reply_markup=markup)
 
 
@@ -69,7 +63,7 @@ async def show(
     query: CallbackQuery, callback_data: RepCb, config: Settings,
     expense_service: ExpenseService, settings_service: SettingsService,
 ) -> None:  # fmt: skip
-    text, markup = await _render(
+    text, markup = await render_report(
         callback_data.kind,  # type: ignore[arg-type]
         max(callback_data.offset, 0),
         config,
@@ -105,7 +99,7 @@ async def confirm_delete(
     expense_service: ExpenseService, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     await expense_service.delete([callback_data.eid])
-    text, markup = await _render(
+    text, markup = await render_report(
         callback_data.kind,  # type: ignore[arg-type]
         callback_data.offset,
         config,

@@ -42,7 +42,7 @@ def test_settings_keyboard_offers_the_other_calendar():
 def test_render_settings(config):
     text = render_settings(config, Calendar.JALALI)
     assert "Jalali (Shamsi)" in text
-    assert "qwen2.5:3b" in text
+    assert "qwen3:4b (local)" in text
     assert "Asia/Tehran" in text
 
 

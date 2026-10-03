@@ -1,6 +1,7 @@
-"""⏰ Reminders: create (free text or form), list, edit, delete, and the notification buttons.
+"""⏰ Reminders: list, edit, delete, the notification buttons, and the rule-based conversation.
 
-Creating a reminder is a small conversation driven by `ReminderDraft.next_step()`:
+Free text is understood by the agent (app/agent). This module's own conversation is the
+fallback used when no model is available (`start`), driven by `ReminderDraft.next_step()`:
 subject? → when? → am/pm? → clock time? → when to notify? → confirm (⭐ decided by the LLM).
 The draft is kept in the FSM data between questions.
 """
@@ -29,11 +30,11 @@ from app.bot.keyboards.inline import (
     reminder_times,
     reminders_list,
 )
-from app.bot.states import ReminderForm
+from app.bot.states import AgentForm, ReminderForm
 from app.config import Calendar, Settings
 from app.core.parsers.datetime_parser import Moment
-from app.core.parsers.rules import ReminderParse, has_reminder_trigger, parse_reminder
-from app.llm.client import LLMClient
+from app.core.parsers.rules import ReminderParse, parse_reminder
+from app.llm.client import LanguageModel
 from app.services.reminder_ai import classify_importance, extract_reminder
 from app.services.reminders import ReminderDraft, ReminderService
 from app.services.settings import SettingsService
@@ -50,7 +51,7 @@ class Flow:
 
     config: Settings
     state: FSMContext
-    llm: LLMClient
+    llm: LanguageModel
     calendar: Calendar
 
     @property
@@ -169,14 +170,16 @@ async def start(message: Message, flow: Flow, text: str, replace_id: int | None 
 
 @router.message(F.text == texts.BTN_NEW_REMINDER)
 async def new_reminder(message: Message, state: FSMContext) -> None:
+    # The next message goes to the agent with a hint (or to `start` if no model is available).
     await state.clear()
-    await state.set_state(ReminderForm.describe)
+    await state.set_state(AgentForm.hint)
+    await state.update_data(hint="reminder")
     await message.answer(texts.REMINDER_ASK_DESCRIBE)
 
 
 @router.message(ReminderForm.describe, F.text)
 async def describe(
-    message: Message, state: FSMContext, config: Settings, llm: LLMClient,
+    message: Message, state: FSMContext, config: Settings, llm: LanguageModel,
     settings_service: SettingsService,
 ) -> None:  # fmt: skip
     replace_id = (await state.get_data()).get("replace_id")
@@ -187,7 +190,7 @@ async def describe(
 
 @router.message(ReminderForm.subject, F.text)
 async def got_subject(
-    message: Message, state: FSMContext, config: Settings, llm: LLMClient,
+    message: Message, state: FSMContext, config: Settings, llm: LanguageModel,
     settings_service: SettingsService,
 ) -> None:  # fmt: skip
     draft = await _load(state)
@@ -201,7 +204,7 @@ async def got_subject(
 
 @router.message(ReminderForm.when, F.text)
 async def got_when(
-    message: Message, state: FSMContext, config: Settings, llm: LLMClient,
+    message: Message, state: FSMContext, config: Settings, llm: LanguageModel,
     settings_service: SettingsService,
 ) -> None:  # fmt: skip
     draft = await _load(state)
@@ -222,7 +225,7 @@ async def got_when(
 
 @router.message(ReminderForm.time, F.text)
 async def got_time(
-    message: Message, state: FSMContext, config: Settings, llm: LLMClient,
+    message: Message, state: FSMContext, config: Settings, llm: LanguageModel,
     settings_service: SettingsService,
 ) -> None:  # fmt: skip
     draft = await _load(state)
@@ -244,7 +247,7 @@ async def got_time(
 
 @router.message(ReminderForm.alert_time, F.text)
 async def got_alert_time(
-    message: Message, state: FSMContext, config: Settings, llm: LLMClient,
+    message: Message, state: FSMContext, config: Settings, llm: LanguageModel,
     settings_service: SettingsService,
 ) -> None:  # fmt: skip
     draft = await _load(state)
@@ -276,15 +279,6 @@ async def show_reminders(
     await message.answer(text, reply_markup=markup)
 
 
-@router.message(F.text.func(has_reminder_trigger), ~F.text.startswith("/"))
-async def reminder_from_text(
-    message: Message, state: FSMContext, config: Settings, llm: LLMClient,
-    settings_service: SettingsService,
-) -> None:  # fmt: skip
-    await state.clear()
-    await start(message, await _flow(config, state, llm, settings_service), message.text or "")
-
-
 # --- Buttons while creating ---
 
 
@@ -301,7 +295,7 @@ async def _query_flow(
 @router.callback_query(RemCb.filter(F.action.in_({"ampm", "time"})))
 async def pick_time(
     query: CallbackQuery, callback_data: RemCb, state: FSMContext, config: Settings,
-    llm: LLMClient, settings_service: SettingsService,
+    llm: LanguageModel, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, settings_service)
     if loaded is None:
@@ -320,7 +314,7 @@ async def pick_time(
 @router.callback_query(RemCb.filter(F.action == "alert"))
 async def toggle_alert(
     query: CallbackQuery, callback_data: RemCb, state: FSMContext, config: Settings,
-    llm: LLMClient, settings_service: SettingsService,
+    llm: LanguageModel, settings_service: SettingsService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, settings_service)
     if loaded is None:
@@ -350,7 +344,7 @@ async def other_alert_time(query: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(RemCb.filter(F.action == "alerts_done"))
 async def alerts_done(
-    query: CallbackQuery, state: FSMContext, config: Settings, llm: LLMClient,
+    query: CallbackQuery, state: FSMContext, config: Settings, llm: LanguageModel,
     settings_service: SettingsService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, settings_service)
@@ -368,7 +362,7 @@ async def alerts_done(
 
 @router.callback_query(RemCb.filter(F.action == "star"))
 async def toggle_star(
-    query: CallbackQuery, state: FSMContext, config: Settings, llm: LLMClient,
+    query: CallbackQuery, state: FSMContext, config: Settings, llm: LanguageModel,
     settings_service: SettingsService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, settings_service)
@@ -385,7 +379,7 @@ async def toggle_star(
 
 @router.callback_query(RemCb.filter(F.action == "save"))
 async def save(
-    query: CallbackQuery, state: FSMContext, config: Settings, llm: LLMClient,
+    query: CallbackQuery, state: FSMContext, config: Settings, llm: LanguageModel,
     settings_service: SettingsService, reminder_service: ReminderService,
 ) -> None:  # fmt: skip
     loaded = await _query_flow(query, state, config, llm, settings_service)

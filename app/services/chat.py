@@ -5,6 +5,7 @@
 - Only the newest `keep` (CHAT_KEEP) chats are stored; older ones are removed automatically.
 """
 
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Calendar
 from app.db.models import ChatHistory, ChatSession, utcnow
-from app.llm.client import ChatMessage, LLMClient
+from app.llm.client import ChatMessage, LanguageModel
 from app.llm.prompts.chat import CHAT_SYSTEM_PROMPT
 from app.utils.calendar import format_date
 
@@ -29,6 +30,12 @@ class Exchange:
     answer: str
 
 
+def strip_notes(text: str) -> str:
+    """Remove the agent's "[done: …]" / "[asked: …]" lines (kept only for the model)."""
+    lines = [line for line in text.splitlines() if not re.match(r"^\[(?:done|asked):", line)]
+    return "\n".join(lines).strip()
+
+
 def make_title(question: str) -> str:
     title = " ".join(question.split())
     return title if len(title) <= TITLE_LENGTH else title[: TITLE_LENGTH - 1].rstrip() + "…"
@@ -38,7 +45,7 @@ class ChatService:
     def __init__(
         self,
         session: AsyncSession,
-        llm: LLMClient,
+        llm: LanguageModel,
         memory: int,
         timezone: ZoneInfo,
         keep: int = 20,
@@ -131,7 +138,7 @@ class ChatService:
             if row.role == "user":
                 exchanges.append(Exchange(question=row.content, answer=""))
             elif exchanges:
-                exchanges[-1].answer = row.content
+                exchanges[-1].answer = strip_notes(row.content)
         return exchanges[-count:]
 
     async def _prune_old_chats(self) -> None:
@@ -188,6 +195,14 @@ class ChatService:
             )
         )
         await self._prune_old_chats()
+        await self.session.commit()
+
+    async def add_note(self, note: str) -> None:
+        """Add an assistant line (e.g. "[done: …]" after a button press) to the active chat."""
+        if not note:
+            return
+        chat = await self.active_session()
+        self.session.add(ChatHistory(session_id=chat.id, role="assistant", content=note))
         await self.session.commit()
 
     # --- Answering ---

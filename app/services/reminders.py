@@ -26,6 +26,7 @@ from sqlalchemy.orm import selectinload
 from app.config import Calendar
 from app.core.parsers.datetime_parser import DayTimes, RepeatRule
 from app.core.parsers.rules import ReminderParse
+from app.core.textmatch import best_match
 from app.db.models import Reminder, ReminderAlert, utcnow
 
 Step = Literal["subject", "when", "ambiguous", "time", "past", "alerts", "alerts_past"]
@@ -360,6 +361,125 @@ class ReminderService:
         reminder.alerts.append(ReminderAlert(notify_at=to_utc(when), kind="extra"))
         await self.session.commit()
         return when
+
+    # --- Used by the agent ---
+
+    async def search(self, query: str) -> tuple[Reminder | None, list[Reminder]]:
+        """(the single clear match, all matches) among upcoming reminders."""
+        return best_match(await self.upcoming(limit=200), query, key=lambda r: r.text)
+
+    async def active_by_ids(self, ids: list[int]) -> list[Reminder]:
+        found = [await self.get(i) for i in ids]
+        return [r for r in found if r is not None and r.status == "active"]
+
+    async def set_status(self, ids: list[int], status: str) -> list[Reminder]:
+        """Cancel ("cancelled") or bring back ("active") reminders."""
+        found = [r for r in [await self.get(i) for i in ids] if r is not None]
+        for reminder in found:
+            reminder.status = status
+        await self.session.commit()
+        return found
+
+    def to_draft(self, reminder: Reminder) -> ReminderDraft:
+        """A draft describing a stored reminder (to apply partial changes to it)."""
+        event = from_utc(reminder.event_at, self.timezone)
+        extras = [
+            from_utc(a.notify_at, self.timezone).isoformat()
+            for a in reminder.alerts
+            if a.kind == "extra" and a.sent_at is None
+        ]
+        return ReminderDraft(
+            raw=reminder.raw_text,
+            subject=reminder.text,
+            date=event.date().isoformat(),
+            time=None if reminder.all_day else _hhmm(event.time()),
+            repeat=reminder.repeat_rule,
+            alerts=[s for s in reminder.alert_specs.split(",") if s],
+            extra_alerts=extras,
+            important=reminder.important,
+        )
+
+    async def update(self, reminder_id: int, draft: ReminderDraft) -> Reminder | None:
+        """Replace a reminder's details and rebuild its pending alerts."""
+        reminder = await self.get(reminder_id)
+        if reminder is None:
+            return None
+        now = self.now()
+        event, all_day = draft.event_datetime(now)
+        reminder.text = draft.subject
+        reminder.event_at = to_utc(event)
+        reminder.all_day = all_day
+        reminder.repeat_rule = draft.repeat
+        reminder.alert_specs = ",".join(draft.alerts or [])
+        reminder.important = bool(draft.important)
+        reminder.status = "active"
+        reminder.alerts = [a for a in reminder.alerts if a.sent_at is not None] + [
+            ReminderAlert(notify_at=to_utc(when), kind=kind)
+            for when, kind in draft.alert_times(now, self.day_times)
+        ]
+        await self.session.commit()
+        return reminder
+
+    def snapshot(self, reminder: Reminder) -> dict:
+        """Everything needed to put a reminder back exactly as it was (for ↩️ Undo)."""
+        return {
+            "id": reminder.id,
+            "text": reminder.text,
+            "event_at": reminder.event_at.isoformat(),
+            "all_day": reminder.all_day,
+            "repeat_rule": reminder.repeat_rule,
+            "alert_specs": reminder.alert_specs,
+            "important": reminder.important,
+            "status": reminder.status,
+            "alerts": [
+                {
+                    "notify_at": a.notify_at.isoformat(),
+                    "kind": a.kind,
+                    "sent_at": a.sent_at.isoformat() if a.sent_at else None,
+                }
+                for a in reminder.alerts
+            ],
+        }
+
+    async def restore(self, snapshot: dict) -> Reminder | None:
+        reminder = await self.get(snapshot["id"])
+        if reminder is None:
+            return None
+        reminder.text = snapshot["text"]
+        reminder.event_at = datetime.fromisoformat(snapshot["event_at"])
+        reminder.all_day = snapshot["all_day"]
+        reminder.repeat_rule = snapshot["repeat_rule"]
+        reminder.alert_specs = snapshot["alert_specs"]
+        reminder.important = snapshot["important"]
+        reminder.status = snapshot["status"]
+        reminder.alerts = [
+            ReminderAlert(
+                notify_at=datetime.fromisoformat(a["notify_at"]),
+                kind=a["kind"],
+                sent_at=datetime.fromisoformat(a["sent_at"]) if a["sent_at"] else None,
+            )
+            for a in snapshot["alerts"]
+        ]
+        await self.session.commit()
+        return reminder
+
+    async def set_alert_specs(self, reminder_id: int, specs: list[str]) -> Reminder | None:
+        """Change when a reminder notifies (keeps one-off and already sent alerts)."""
+        reminder = await self.get(reminder_id)
+        if reminder is None:
+            return None
+        now = self.now()
+        event = from_utc(reminder.event_at, self.timezone)
+        reminder.alert_specs = ",".join(specs)
+        kept = [a for a in reminder.alerts if a.sent_at is not None or a.kind == "extra"]
+        fresh = []
+        for spec in specs:
+            when = alert_time(spec, event, reminder.all_day, self.day_times)
+            if when is not None and when > now - timedelta(minutes=1):
+                fresh.append(ReminderAlert(notify_at=to_utc(when), kind="spec"))
+        reminder.alerts = kept + fresh
+        await self.session.commit()
+        return reminder
 
     # --- Used by the scheduler ---
 

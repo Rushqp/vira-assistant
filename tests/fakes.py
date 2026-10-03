@@ -1,5 +1,6 @@
 """Test doubles shared across test modules: fake LLM and a fake Telegram Bot API session."""
 
+import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,13 +19,31 @@ from aiogram.methods import (
 )
 from aiogram.types import CallbackQuery, Chat, InlineKeyboardMarkup, Message, Update, User
 
-from app.llm.client import ChatMessage, LLMError
+from app.llm.client import ChatMessage, LLMError, LLMResponse, ToolCall
 
 OWNER_ID = 1001
 
 
+def tool(name: str, **arguments) -> ToolCall:
+    """A tool call as a model would return it."""
+    return ToolCall(id=f"call_{name}_{len(arguments)}", name=name, arguments=json.dumps(arguments))
+
+
+def calls(*tool_calls: ToolCall, text: str = "") -> LLMResponse:
+    return LLMResponse(content=text, tool_calls=list(tool_calls), provider="fake")
+
+
+def reply(text: str) -> LLMResponse:
+    return LLMResponse(content=text, provider="fake")
+
+
 class FakeLLM:
-    """Streams a canned answer and records the messages it was called with."""
+    """Streams a canned answer and records the messages it was called with.
+
+    Agent turns (`respond`) follow `script`, a list of `LLMResponse`s (or callables taking the
+    messages and returning one). With an empty script, `respond` acts like "no tool-capable
+    model reachable", so the bot uses its rule-based fallback.
+    """
 
     def __init__(self, answer: str = "Hello there!", error: LLMError | None = None) -> None:
         self.answer = answer
@@ -32,6 +51,27 @@ class FakeLLM:
         self.calls: list[list[ChatMessage]] = []
         self.json_reply: dict | None = None  # None: structured output fails (model offline)
         self.json_calls: list[list[ChatMessage]] = []
+        self.script: list = []
+        self.respond_calls: list[list[ChatMessage]] = []
+        self.model = "fake"
+        self.streams = False  # like an API provider: the text arrives in one piece
+
+    async def respond(
+        self,
+        messages: list[ChatMessage],
+        tools: list[dict] | None = None,
+        on_text=None,
+        temperature: float = 0.3,
+    ) -> LLMResponse:
+        self.respond_calls.append([dict(m) for m in messages])
+        if not self.script:
+            raise LLMError("unreachable", "no scripted response")
+        step = self.script.pop(0)
+        if callable(step):
+            step = step(messages)
+        if step.content and on_text and self.streams:
+            await on_text(step.content)
+        return step
 
     async def stream_chat(self, messages: list[ChatMessage]) -> AsyncIterator[str]:
         self.calls.append(messages)

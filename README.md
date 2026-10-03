@@ -2,8 +2,8 @@
 
 # 🤖 Vira Assistant
 
-**A personal AI assistant on Telegram: reminders, expenses, reports, notes and voice.**
-**Runs locally with Docker, understands Persian and English.**
+**A personal AI assistant on Telegram that understands what you say and does it:**
+**reminders, expenses, reports, notes and voice. Persian and English. Runs with Docker.**
 
 [English](#english) · [فارسی](#فارسی)
 
@@ -22,19 +22,24 @@
 
 ### What is Vira?
 
-Vira is a **single-user** assistant you run on your own server (even a weak one) and talk to through a
-Telegram bot with a button menu. You can write or speak in **Persian or English**:
+Vira is a **single-user** assistant you run on your own server (even a weak one) and talk to through
+Telegram. Write the way you talk, in **Persian or English**, typos and all, and Vira understands and
+acts:
 
-- ⏰ **Reminders**: *"Doctor tomorrow at 2, remind me in the morning"*
-- 💰 **Expenses**: *"Paid 3 million for groceries and 100k for 10 liters of fuel"*
-- 📊 **Reports**: daily / weekly / monthly, exported to **Excel / CSV**
-- 📝 **Notes & to-dos**
-- 🎙 **Voice messages**, transcribed locally
-- 💬 **Simple Q&A** with a local LLM (Ollama)
-- 📅 Dates in **Jalali (Shamsi)** or **Gregorian**, switchable in Settings
+- *«امروز ۳ خرید کردم: سیگار ۱۵۰ هزار، ماست ۲۰۰ هزار، آب ۵۰ هزار»* → three expenses saved
+- *«فردا ساعت ۲ دکتر دارم، صبح یادم بنداز»* → reminder at 14:00, notification at 09:00
+- *«تایم دکتر رو کنسل کن»* → that reminder is cancelled
+- *«نه، ماست ۲۵۰ هزار بود»* → the expense is corrected
+- *«این ماه چقدر خرج کردم؟»* → a monthly report
+- and ordinary questions, answered in your language
 
-Common actions are handled by a fast rule-based parser. The LLM is used only when needed, so the bot
-stays responsive on low-spec hardware.
+Every action shows what was done, with **↩️ Undo** and **✏️ Edit** buttons. Vira only asks when
+something is really unclear, for example whether «۳ تومن» means 3 thousand or 3 million.
+
+Under the hood an **AI agent** reads each message and calls typed tools (add expenses, create /
+cancel reminders, reports, …). The app checks every tool call with deterministic Persian/English
+parsers (Jalali dates, «هزار / میلیون» amounts) before acting. Reminders and the morning briefing
+never depend on the AI. Design: [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md).
 
 ### Status
 
@@ -43,8 +48,8 @@ stays responsive on low-spec hardware.
 | **v0.1.0** | Skeleton, Docker, menu, owner-only access, SQLite + Alembic, calendar setting, CI | ✅ Done |
 | **v0.2.0** | Ollama + hardware profiles, streaming chat with short memory, calculator, today's date | ✅ Done |
 | **v0.3.0** | Reminders (fa/en date parser, both calendars, repeats, snooze), morning briefing, previous chats | ✅ Done |
-| **v0.4.0** | Amount parser, expenses (several per message), 13 categories with learning, day / week / month reports | ✅ Done |
-| v0.5.0 | Excel/CSV export, nightly report, morning briefing | ⏳ Next |
+| **v0.4.0** | **AI agent** (understands any phrasing, follow-ups, undo / edit), free AI providers with failover, expenses, 13 categories with learning, reports | ✅ Done |
+| v0.5.0 | Excel/CSV export, nightly report | ⏳ Next |
 | v0.6.0 | Voice → text (faster-whisper) | |
 | v0.7.0 | Notes, to-dos, backup | |
 | v1.0.0 | Full tests, optimization, install guide | |
@@ -57,59 +62,59 @@ The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token.
 2. Get your numeric user ID from [@userinfobot](https://t.me/userinfobot).
-3. Clone and configure:
+3. **Recommended:** get a free AI key, so Vira is smart and fast even on a small server:
+   [Google AI Studio](https://aistudio.google.com/apikey) (Gemini) and/or
+   [Groq](https://console.groq.com/keys). Several keys = automatic failover.
+4. Clone and configure:
 
    ```bash
    git clone https://github.com/Rushqp/vira-assistant.git
    cd vira-assistant
-   cp .env.example .env      # then set BOT_TOKEN and OWNER_ID
+   cp .env.example .env      # set BOT_TOKEN, OWNER_ID and GEMINI_API_KEY / GROQ_API_KEY
    ```
 
-4. Start it:
+5. Start it:
 
    ```bash
    docker compose up -d --build
    docker compose logs -f bot
    ```
 
-5. Open your bot in Telegram and send `/start`.
+6. Open your bot in Telegram and send `/start`.
 
-On the first start, the `ollama-init` container downloads the model for your profile (about 2 GB for
-`standard`). Until it finishes, the bot waits. Follow the progress with `docker compose logs -f ollama-init`.
+On the first start, the `ollama-init` container downloads the local model for your profile (the local
+fallback). Follow it with `docker compose logs -f ollama-init`. With `PROFILE=remote` and
+`COMPOSE_PROFILES=` (empty) no local model is used at all.
 
-**Using an external API instead of Ollama** (`PROFILE=remote`): set `COMPOSE_PROFILES=` (empty) so the
-Ollama containers are not started, and set `LLM_BASE_URL`, `LLM_MODEL` and `LLM_API_KEY` for any
-OpenAI-compatible provider (OpenRouter, Gemini, OpenAI, …).
+### How Vira thinks
+
+| Step | What happens |
+|---|---|
+| 1 | Calculator and "what's the date?" are answered instantly, without AI |
+| 2 | The **agent** reads the message with recent context (and the dates of the coming days in both calendars) and decides which tools to call |
+| 3 | Each tool call is validated: amounts and dates are re-checked by deterministic parsers; mistakes go back to the AI to fix |
+| 4 | You get a card for every real result, with ↩️ Undo / ✏️ Edit |
+| — | AI providers are tried in order (`LLM_PROVIDERS`): a provider that is down or out of free quota is paused and the next one answers |
+| — | If no AI is reachable, the v0.3 rule-based understanding still handles reminders, expenses and reports |
+
+Privacy: with an API provider, your message text is sent to that provider (your database stays on
+your server). For fully local operation use `standard` / `full` without API keys.
 
 ### Using it
 
-- **Chat:** just write. 💬 **New Chat** starts a fresh conversation; 🗂 **Chats** lists previous ones
-  so you can continue any of them.
-- **Reminders:** write them naturally, in Persian or English:
-  - *Doctor tomorrow at 2, remind me in the morning*
-  - *فردا ساعت ۸ یادم بنداز به مامان زنگ بزنم*
-  - *تولد مامان ۱۵ مهر، شب قبلش یادم بنداز*
-  - *remind me every Saturday at 8am to go to the gym* · *۱۰ دقیقه دیگه یادم بنداز*
-
-  If something is missing, Vira asks: am or pm for "at 2", the time, and when to notify you (you can
-  pick several, e.g. *1 hour before* + *at the time*). Important reminders (doctor, bills, flights, …)
-  are detected by the model and marked ⭐. Notifications have **Done**, **+10 min** and **+1 hour**
-  buttons. 📋 **Reminders** lists, edits and deletes them.
-- **Morning briefing:** every day at 08:00 you get today's reminders, important ones first
-  (can be turned off in ⚙️ Settings).
-- **Expenses:** write what you spent, several items at once:
-  - *۳ میلیون خرید خونه دادم، ۱۰ لیتر بنزین هم ۱۰۰ هزار*
-  - *Paid 3 million for groceries and 100k for fuel* · *نون ۵۰ هزار و شیر ۳۰ هزار*
-  - *دیروز ۲ و نیم میلیون دکتر دادم* (recorded for yesterday)
-
-  If an amount has no thousand / million («۳ تومن», "150"), Vira asks which one you meant.
-  Categories are picked from keywords, then by the model; if you change one, Vira remembers it
-  for next time. Every expense is confirmed before saving and can be undone.
-  Categories can be added or removed in ⚙️ Settings → 🏷 Categories.
-- **Reports:** 📊 **Today Report** (with each expense and a delete button) and 📅 **Month Report**
-  (the Jalali or Gregorian month, as set in Settings): total, comparison with the previous period,
-  daily average, per-category bars and the largest expense. Use ◀️ ▶️ to go back in time, or
-  write *گزارش این هفته* · *report last month* · *چقدر خرج کردم این ماه*.
+- **Just talk.** Several requests in one message are fine. Follow-ups work: "cancel it", «پاکش کن»,
+  «ساعتش رو بکن ۵».
+- **Reminders:** events and notifications are understood separately («… صبح یادم بنداز»).
+  Without a notification time, Vira notifies at the start and offers buttons for 15 min / 1 hour
+  before, the night before or the morning of the day. Repeats: every day / week / month.
+  Notifications have **Done**, **+10 min** and **+1 hour**. 📋 **Reminders** lists them.
+- **Expenses:** several items at once, quantities («۱۰ لیتر»), past days («دیروز»). Categories are
+  chosen by the AI; corrections are remembered (🏷 on a saved expense, or just say it).
+  ⚙️ Settings → 🏷 Categories adds or removes categories.
+- **Reports:** 📊 **Today Report**, 📅 **Month Report** (Jalali or Gregorian month), or just ask:
+  total, comparison with the previous period, daily average, per-category bars, largest expense.
+- **Morning briefing:** every day at 08:00, today's reminders, important ones (⭐) first.
+- 💬 **New Chat** starts a fresh conversation; 🗂 **Chats** continues an older one.
 
 ### Configuration (`.env`)
 
@@ -123,28 +128,35 @@ OpenAI-compatible provider (OpenRouter, Gemini, OpenAI, …).
 | `CURRENCY` | `toman` | `toman` or `rial` |
 | `PROFILE` | `standard` | Hardware profile: `lite`, `standard`, `full`, `remote` |
 | `COMPOSE_PROFILES` | `ollama` | Starts the local Ollama containers; empty for `remote` |
-| `LLM_BASE_URL` | `http://ollama:11434/v1` | Any OpenAI-compatible endpoint |
-| `LLM_MODEL` | profile default | Override the LLM model (**required** for `remote`) |
-| `LLM_API_KEY` | `ollama` | API key (used by `remote`) |
-| `LLM_TIMEOUT` | `180` | Seconds to wait for an answer |
-| `CHAT_MEMORY` | `10` | How many previous messages the chat remembers (0–50) |
+| `LLM_PROVIDERS` | `gemini,groq,github,local` | Order in which AI providers are tried; ones without a key are skipped |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | empty / `gemini-flash-latest` | Free Google Gemini API |
+| `GROQ_API_KEY` / `GROQ_MODEL` | empty / `openai/gpt-oss-120b` | Free Groq API |
+| `GITHUB_TOKEN` / `GITHUB_MODEL` | empty / `openai/gpt-4.1-mini` | Free GitHub Models API |
+| `LLM_BASE_URL` | `http://ollama:11434/v1` | The `local` provider: Ollama, or any OpenAI-compatible API (e.g. OpenRouter) |
+| `LLM_MODEL` | profile default | Model of the `local` provider |
+| `LLM_API_KEY` | `ollama` | API key of the `local` provider |
+| `LOCAL_TOOLS` | `auto` | Agent tools with the local model: `auto` (by model family), `on`, `off` |
+| `LLM_TIMEOUT` | `180` | Seconds to wait for the local model |
+| `CHAT_MEMORY` | `10` | How many previous messages the assistant sees (0–50) |
 | `CHAT_KEEP` | `20` | How many previous chats are kept in 🗂 Chats |
-| `OLLAMA_KEEP_ALIVE` | `30m` | How long the model stays in RAM after use (`-1` = forever) |
-| `STT_ENABLED` | `true` | Enable voice transcription |
-| `STT_MODEL` | profile default | Override the Whisper model |
-| `MORNING_TIME` … `NIGHT_TIME` | `09:00` `12:00` `16:00` `19:00` `22:00` | Clock times for morning, noon, afternoon, evening, night (`MORNING_TIME`, `NOON_TIME`, `AFTERNOON_TIME`, `EVENING_TIME`, `NIGHT_TIME`) |
+| `OLLAMA_KEEP_ALIVE` | `30m` | How long the local model stays in RAM after use (`-1` = forever) |
+| `STT_ENABLED` / `STT_MODEL` | `true` / profile default | Voice transcription (v0.6) |
+| `MORNING_TIME` … `NIGHT_TIME` | `09:00` `12:00` `16:00` `19:00` `22:00` | Clock times for morning, noon, afternoon, evening, night |
 | `MORNING_BRIEFING_TIME` | `08:00` | Daily list of today's reminders |
-| `DAILY_REPORT_TIME` | `22:00` | Time of the nightly report |
+| `DAILY_REPORT_TIME` | `22:00` | Time of the nightly report (v0.5) |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` … |
 
-**Hardware profiles**
+**Hardware profiles** (the free APIs come first in every profile when a key is set)
 
-| Profile | RAM | LLM | Whisper |
+| Profile | RAM | Local model | Without an API key |
 |---|---|---|---|
-| `lite` | 2 GB | `gemma3:1b` | `tiny` |
-| `standard` | 4 GB | `qwen2.5:3b` | `base` |
-| `full` | 8 GB+ | `qwen2.5:7b` | `small` |
-| `remote` | — | external API | `base` |
+| `lite` | 2 GB | `gemma3:1b` (chat only) | rule-based understanding + local chat |
+| `standard` | 4 GB | `qwen3:4b` (agent) | local agent, slower on CPU |
+| `full` | 8 GB+ | `qwen3:8b` (agent) | local agent |
+| `remote` | — | none | needs an API key or `LLM_MODEL` |
+
+Measure accuracy and speed of your models on your own server:
+`docker compose exec bot python scripts/eval_agent.py`.
 
 ### Source code map
 
@@ -153,43 +165,42 @@ app/
 ├── main.py            # Entry point: logging → migrations → scheduler → bot polling
 ├── config.py          # All settings from .env (pydantic-settings) + hardware profiles
 ├── texts.py           # Every user-facing string (edit wording here only)
+├── agent/             # The brain: an AI agent with typed tools
+│   ├── core.py        #   the loop: model → tool calls → results → short answer
+│   ├── tools/         #   expenses, reminders, general (reports, dates, settings); validation
+│   ├── actions.py     #   undo log for everything the agent changed
+│   ├── context.py     #   per-message context: now + dates table (Gregorian = Jalali)
+│   └── prompt.py      #   the system prompt
+├── llm/               # client.py = one OpenAI-compatible endpoint, providers.py = failover
+│                      #   chain (Gemini → Groq → GitHub → local), prompts/, schemas.py
 ├── bot/               # Telegram layer, no business logic
-│   ├── handlers/      #   one file per feature: start, settings, categories, chat, chats,
-│   │                  #   reminders, expenses, reports, menu (placeholders), fallback
+│   ├── handlers/      #   assistant (free text → agent), chats, settings, categories, reminders,
+│   │                  #   expenses, reports (buttons + rule-based fallback), menu, fallback
+│   ├── agent_ui.py    #   result cards with ↩️ Undo / ✏️ Edit
 │   ├── keyboards/     #   reply.py = main menu, inline.py = buttons under messages
-│   ├── middlewares/   #   owner_only, logging, db (session + services), menu_reset (leave forms)
-│   ├── views.py       #   message rendering: reminder cards, notifications, briefing,
-│   │                  #   expense cards, reports (text bars)
+│   ├── middlewares/   #   owner_only, logging, db (session + services), menu_reset
+│   ├── views.py       #   reminder cards, notifications, briefing, expense cards, reports
 │   ├── streaming.py   #   shows a streamed answer by editing the Telegram message
-│   └── states.py      #   FSM states for multi-step forms
-├── core/              # Language processing (no LLM)
+│   └── states.py      #   FSM states
+├── core/              # Deterministic language tools (no AI)
 │   ├── normalizer.py  #   fa/en digits, number words, Arabic letters, ZWNJ
-│   └── parsers/       #   datetime_parser.py (dates, times, repeats), rules.py (reminder sentences),
-│                      #   amount_parser.py (amounts, quantities), expense_rules.py (expense sentences)
-├── llm/               # client.py = OpenAI-compatible client, prompts/, schemas.py (JSON output)
-├── services/          # Business logic, independent of Telegram: settings, chat, tools,
-│                      #   reminders + reminder_ai, expenses (drafts, categories, learning)
-│                      #   + expense_ai, reports (periods, totals, comparisons)
-├── scheduler/         # jobs.py = due reminders + morning briefing, setup.py = APScheduler
+│   ├── textmatch.py   #   fuzzy references («تایم دکتر» → the doctor reminder)
+│   └── parsers/       #   dates & times, reminder sentences, amounts, expense sentences
+├── services/          # Business logic, independent of Telegram: reminders, expenses,
+│                      #   reports, chat history, settings, calculator
+├── scheduler/         # due reminders + morning briefing (APScheduler)
 ├── db/                # models.py = tables, session.py = engine + migrations
-└── utils/             # calendar.py = Jalali / Gregorian, formatting.py = Markdown → HTML, money
+└── utils/             # Jalali / Gregorian formatting, Markdown → HTML, money
+scripts/eval_agent.py  # accuracy / latency of each configured model on real Persian cases
 migrations/            # Alembic migrations (one file per schema change)
 tests/                 # pytest suite (no network or real model needed)
 docker/                # Dockerfile, entrypoint, ollama-init.sh (pulls the profile model)
-docs/                  # Roadmap and documentation
+docs/                  # Roadmap, agent design
 ```
 
-How an update flows: **Telegram → middlewares** (owner check, logging, DB session) **→ handler**
-(`bot/handlers`) **→ service** (`services`) **→ database** (`db`) / **LLM** (`llm`).
-
-A free-text message with "remind me" / «یادم بنداز» goes to `handlers/reminders.py`:
-`core/parsers` extract the event time, notification time and subject, `services/reminders.py`
-decides what still needs asking, and `scheduler/jobs.py` sends the notifications. A message with
-an amount («۵۰ هزار», "100k") goes to `handlers/expenses.py`: `core/parsers/expense_rules.py`
-splits it into items, `services/expenses.py` resolves amounts and categories. «گزارش …» /
-"report …" goes to `handlers/reports.py` (`services/reports.py`). Any other text goes to
-`handlers/chat.py`: calculator and date questions get an instant answer from `services/tools.py`,
-everything else is answered by the model via `services/chat.py`.
+How a message flows: **Telegram → middlewares → `handlers/assistant.py` → `agent/core.py` ↔
+`llm/providers.py` → `agent/tools/*` → `services/*` → database**, and the results come back as
+cards from `bot/agent_ui.py`.
 
 ### Development
 
@@ -197,11 +208,12 @@ everything else is answered by the model via `services/chat.py`.
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-cp .env.example .env               # set BOT_TOKEN and OWNER_ID
+cp .env.example .env               # set BOT_TOKEN, OWNER_ID (and an API key)
 python -m app.main                 # run the bot locally (DB in ./data)
 
 pytest                             # tests
 ruff check . && ruff format .      # lint + format
+python scripts/eval_agent.py       # how well the configured models understand real messages
 alembic revision -m "describe"     # new migration
 ```
 
@@ -223,19 +235,24 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 
 ### ویرا چیست؟
 
-ویرا یک دستیار شخصی **تک‌کاربره** است که روی سرور خودتان (حتی یک سرور ضعیف) اجرا می‌شود و از طریق یک
-ربات تلگرام با منوی دکمه‌ای با آن کار می‌کنید. می‌توانید به **فارسی یا انگلیسی** بنویسید یا پیام صوتی بفرستید:
+ویرا یک دستیار شخصی **تک‌کاربره** است که روی سرور خودتان (حتی یک سرور ضعیف) اجرا می‌شود و از طریق
+تلگرام با آن حرف می‌زنید. همان‌طور که حرف می‌زنید بنویسید، **فارسی یا انگلیسی**، حتی با غلط تایپی؛ ویرا
+منظورتان را می‌فهمد و انجام می‌دهد:
 
-- ⏰ **یادآور**: «فردا ساعت ۲ دکتر دارم، صبح یادم بنداز»
-- 💰 **ثبت هزینه**: «۳ میلیون خرید خونه دادم، ۱۰ لیتر بنزین هم ۱۰۰ تومن»
-- 📊 **گزارش**: روزانه، هفتگی و ماهانه، با خروجی **اکسل و CSV**
-- 📝 **یادداشت و کارهای روزانه**
-- 🎙 **پیام صوتی** که روی همان سرور به متن تبدیل می‌شود
-- 💬 **پرسش و پاسخ ساده** با مدل زبانی لوکال (Ollama)
-- 📅 نمایش تاریخ به **شمسی** یا **میلادی** (قابل تغییر در تنظیمات)
+- «امروز ۳ خرید کردم: سیگار ۱۵۰ هزار، ماست ۲۰۰ هزار، آب ۵۰ هزار» ← سه هزینه ثبت می‌شود
+- «فردا ساعت ۲ دکتر دارم، صبح یادم بنداز» ← یادآور ساعت ۱۴ و اعلان ساعت ۹ صبح
+- «تایم دکتر رو کنسل کن» ← همان یادآور کنسل می‌شود
+- «نه، ماست ۲۵۰ هزار بود» ← هزینه اصلاح می‌شود
+- «این ماه چقدر خرج کردم؟» ← گزارش ماه
+- و سوال‌های معمولی که به زبان خودتان جواب داده می‌شوند
 
-کارهای پرتکرار با یک پارسر قانون‌محور و سریع انجام می‌شوند و مدل زبانی فقط وقتی لازم باشد صدا زده
-می‌شود. به همین دلیل ربات روی سخت‌افزار ضعیف هم سریع می‌ماند.
+نتیجه هر کار با دکمه‌های **↩️ برگشت** و **✏️ ویرایش** نشان داده می‌شود. ویرا فقط وقتی چیزی واقعاً مبهم
+باشد سوال می‌پرسد، مثلاً این‌که «۳ تومن» یعنی ۳ هزار یا ۳ میلیون.
+
+در پشت صحنه یک **Agent هوش مصنوعی** هر پیام را می‌خواند و ابزارهای مشخصی را صدا می‌زند (ثبت هزینه،
+ساخت یا کنسل یادآور، گزارش و …). برنامه هر کدام را قبل از اجرا با پارسرهای دقیق فارسی و انگلیسی
+(تاریخ شمسی، مبلغ‌های «هزار / میلیون») بررسی می‌کند. یادآورها و خلاصه صبحگاهی هیچ وقت به هوش مصنوعی
+وابسته نیستند. طراحی: [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md).
 
 ### وضعیت پروژه
 
@@ -244,8 +261,8 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 | **v0.1.0** | اسکلت پروژه، داکر، منو، دسترسی فقط برای مالک، SQLite و Alembic، تنظیم تقویم، CI | ✅ انجام شد |
 | **v0.2.0** | Ollama و پروفایل‌های سخت‌افزاری، چت استریمی با حافظه کوتاه، ماشین‌حساب، تاریخ امروز | ✅ انجام شد |
 | **v0.3.0** | یادآورها (پارسر تاریخ فارسی/انگلیسی، هر دو تقویم، تکرار، تعویق)، خلاصه صبحگاهی، چت‌های قبلی | ✅ انجام شد |
-| **v0.4.0** | پارسر مبلغ، هزینه‌ها (چند مورد در یک پیام)، ۱۳ دسته با یادگیری، گزارش روز / هفته / ماه | ✅ انجام شد |
-| v0.5.0 | خروجی اکسل/CSV، گزارش شبانه، خلاصه صبحگاهی | ⏳ بعدی |
+| **v0.4.0** | **Agent هوش مصنوعی** (فهم هر جمله، پیگیری حرف‌های قبلی، برگشت / ویرایش)، سرویس‌های رایگان هوش مصنوعی با جایگزینی خودکار، هزینه‌ها، ۱۳ دسته با یادگیری، گزارش‌ها | ✅ انجام شد |
+| v0.5.0 | خروجی اکسل/CSV، گزارش شبانه | ⏳ بعدی |
 | v0.6.0 | تبدیل صوت به متن (faster-whisper) | |
 | v0.7.0 | یادداشت‌ها، کارهای روزانه، پشتیبان‌گیری | |
 | v1.0.0 | تست کامل، بهینه‌سازی، راهنمای نصب | |
@@ -260,19 +277,23 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 
 ۲. شناسه عددی خود را از [@userinfobot](https://t.me/userinfobot) بگیرید.
 
-۳. پروژه را کلون و تنظیم کنید:
+۳. **پیشنهادی:** یک کلید رایگان هوش مصنوعی بگیرید تا ویرا حتی روی سرور کوچک هم باهوش و سریع باشد:
+[Google AI Studio](https://aistudio.google.com/apikey) (Gemini) و/یا [Groq](https://console.groq.com/keys).
+چند کلید یعنی جایگزینی خودکار وقتی یکی در دسترس نیست.
+
+۴. پروژه را کلون و تنظیم کنید:
 
 </div>
 
 ```bash
 git clone https://github.com/Rushqp/vira-assistant.git
 cd vira-assistant
-cp .env.example .env      # BOT_TOKEN و OWNER_ID را تنظیم کنید
+cp .env.example .env      # BOT_TOKEN، OWNER_ID و GEMINI_API_KEY / GROQ_API_KEY را تنظیم کنید
 ```
 
 <div dir="rtl">
 
-۴. اجرا کنید:
+۵. اجرا کنید:
 
 </div>
 
@@ -283,46 +304,41 @@ docker compose logs -f bot
 
 <div dir="rtl">
 
-۵. ربات را در تلگرام باز کنید و `/start` را بفرستید.
+۶. ربات را در تلگرام باز کنید و `/start` را بفرستید.
 
-در اولین اجرا، کانتینر `ollama-init` مدل مربوط به پروفایل شما را دانلود می‌کند (برای `standard` حدود ۲
-گیگ). تا دانلود تمام نشود ربات منتظر می‌ماند. پیشرفت دانلود را با `docker compose logs -f ollama-init`
-ببینید.
+در اولین اجرا، کانتینر `ollama-init` مدل لوکال پروفایل شما (پشتیبان) را دانلود می‌کند. پیشرفتش را با
+`docker compose logs -f ollama-init` ببینید. با `PROFILE=remote` و `COMPOSE_PROFILES` خالی، هیچ مدل
+لوکالی استفاده نمی‌شود.
 
-**استفاده از API خارجی به جای Ollama** (`PROFILE=remote`): مقدار `COMPOSE_PROFILES` را خالی بگذارید تا
-کانتینرهای Ollama اجرا نشوند، و `LLM_BASE_URL`، `LLM_MODEL` و `LLM_API_KEY` را برای هر سرویس سازگار با
-OpenAI (مثل OpenRouter، Gemini یا OpenAI) تنظیم کنید.
+### ویرا چطور فکر می‌کند
+
+| مرحله | چه اتفاقی می‌افتد |
+|---|---|
+| ۱ | ماشین‌حساب و «امروز چندمه؟» فوراً و بدون هوش مصنوعی جواب داده می‌شوند |
+| ۲ | **Agent** پیام را همراه با گفتگوی اخیر (و تاریخ روزهای پیش رو در هر دو تقویم) می‌خواند و تصمیم می‌گیرد کدام ابزارها را صدا بزند |
+| ۳ | هر درخواست ابزار بررسی می‌شود: مبلغ و تاریخ با پارسرهای دقیق دوباره چک می‌شوند و اشتباه‌ها برای اصلاح به هوش مصنوعی برمی‌گردند |
+| ۴ | برای هر نتیجه واقعی یک کارت با ↩️ برگشت / ✏️ ویرایش می‌گیرید |
+| — | سرویس‌های هوش مصنوعی به ترتیب امتحان می‌شوند (`LLM_PROVIDERS`): سرویسی که قطع است یا سهمیه رایگانش تمام شده موقتاً کنار گذاشته می‌شود و بعدی جواب می‌دهد |
+| — | اگر هیچ هوش مصنوعی در دسترس نباشد، فهم قانون‌محور نسخه ۰٫۳ همچنان یادآور، هزینه و گزارش را انجام می‌دهد |
+
+حریم خصوصی: با سرویس API، متن پیام‌ها به همان سرویس فرستاده می‌شود (دیتابیس روی سرور خودتان می‌ماند).
+برای کار کاملاً لوکال از `standard` یا `full` بدون کلید API استفاده کنید.
 
 ### نحوه استفاده
 
-- **چت:** فقط بنویسید. 💬 **New Chat** گفتگوی تازه شروع می‌کند و 🗂 **Chats** فهرست گفتگوهای قبلی را
-  نشان می‌دهد تا هر کدام را ادامه دهید.
-- **یادآور:** به زبان طبیعی و به فارسی یا انگلیسی بنویسید:
-  - «فردا ساعت ۲ دکتر دارم، صبح یادم بنداز»
-  - «فردا ساعت ۸ یادم بنداز به مامان زنگ بزنم»
-  - «تولد مامان ۱۵ مهر، شب قبلش یادم بنداز»
-  - «هر شنبه ساعت ۸ صبح باشگاه یادم بنداز» · «۱۰ دقیقه دیگه یادم بنداز»
-
-  اگر چیزی ناقص باشد ویرا می‌پرسد: صبح یا عصر بودن ساعت (مثلاً «ساعت ۲»)، ساعت دقیق، و این‌که کی
-  یادآوری شود (می‌شود چند گزینه را با هم انتخاب کرد، مثلاً «۱ ساعت قبل» و «سر وقت»). یادآورهای مهم
-  (دکتر، قبض، پرواز و …) را مدل زبانی تشخیص می‌دهد و با ⭐ علامت می‌زند. پیام یادآوری دکمه‌های
-  **Done**، **+10 min** و **+1 hour** دارد. از 📋 **Reminders** می‌توانید یادآورها را ببینید، ویرایش یا
-  حذف کنید.
-- **خلاصه صبحگاهی:** هر روز ساعت ۸ صبح فهرست یادآورهای امروز ارسال می‌شود و موارد مهم بالای فهرست
-  هستند (در ⚙️ Settings قابل خاموش کردن است).
-- **هزینه‌ها:** هزینه‌ها را بنویسید، چند مورد با هم:
-  - «۳ میلیون خرید خونه دادم، ۱۰ لیتر بنزین هم ۱۰۰ هزار»
-  - «نون ۵۰ هزار و شیر ۳۰ هزار» · "Paid 3 million for groceries and 100k for fuel"
-  - «دیروز ۲ و نیم میلیون دکتر دادم» (برای دیروز ثبت می‌شود)
-
-  اگر مبلغ هزار یا میلیون نداشته باشد («۳ تومن»، «۱۵۰») ویرا می‌پرسد منظورتان کدام است. دسته هر هزینه
-  با کلمات کلیدی و در صورت نیاز با مدل زبانی تعیین می‌شود؛ اگر دسته‌ای را عوض کنید، دفعه بعد یادش
-  می‌ماند. هر هزینه قبل از ذخیره تایید می‌خواهد و قابل برگشت (Undo) است. دسته‌ها از
-  ⚙️ Settings ← 🏷 Categories قابل اضافه و حذف هستند.
-- **گزارش‌ها:** 📊 **Today Report** (با لیست هزینه‌ها و دکمه حذف) و 📅 **Month Report** (ماه شمسی یا
-  میلادی، طبق تنظیمات): جمع کل، مقایسه با دوره قبل، میانگین روزانه، نمودار متنی هر دسته و بزرگ‌ترین
-  هزینه. با ◀️ ▶️ به دوره‌های قبل بروید، یا بنویسید «گزارش این هفته» · «گزارش ماه قبل» ·
-  «چقدر خرج کردم این ماه».
+- **فقط حرف بزنید.** چند درخواست در یک پیام هم مشکلی ندارد. ادامه حرف قبلی هم کار می‌کند: «کنسلش کن»،
+  «پاکش کن»، «ساعتش رو بکن ۵».
+- **یادآور:** زمان رویداد و زمان اعلان جدا فهمیده می‌شوند («… صبح یادم بنداز»). اگر زمان اعلان را نگویید،
+  ویرا سر وقت اعلان می‌دهد و دکمه‌هایی برای ۱۵ دقیقه / ۱ ساعت قبل، شب قبل یا صبح همان روز پیشنهاد می‌دهد.
+  تکرار روزانه، هفتگی و ماهانه. پیام یادآوری دکمه‌های **Done**، **+10 min** و **+1 hour** دارد.
+  📋 **Reminders** فهرست یادآورهاست.
+- **هزینه‌ها:** چند مورد با هم، مقدار («۱۰ لیتر») و روزهای گذشته («دیروز»). دسته را هوش مصنوعی انتخاب
+  می‌کند و اصلاح‌های شما یادش می‌ماند (دکمه 🏷 روی هزینه ثبت‌شده، یا فقط بگویید). دسته‌ها از
+  ⚙️ Settings ← 🏷 Categories اضافه و حذف می‌شوند.
+- **گزارش‌ها:** 📊 **Today Report**، 📅 **Month Report** (ماه شمسی یا میلادی) یا فقط بپرسید: جمع کل،
+  مقایسه با دوره قبل، میانگین روزانه، نمودار متنی دسته‌ها و بزرگ‌ترین هزینه.
+- **خلاصه صبحگاهی:** هر روز ساعت ۸ صبح، یادآورهای امروز با موارد مهم (⭐) در بالا.
+- 💬 **New Chat** گفتگوی تازه شروع می‌کند و 🗂 **Chats** گفتگوهای قبلی را ادامه می‌دهد.
 
 ### تنظیمات (`.env`)
 
@@ -336,66 +352,62 @@ OpenAI (مثل OpenRouter، Gemini یا OpenAI) تنظیم کنید.
 | `CURRENCY` | `toman` | `toman` یا `rial` |
 | `PROFILE` | `standard` | پروفایل سخت‌افزار: `lite`، `standard`، `full`، `remote` |
 | `COMPOSE_PROFILES` | `ollama` | اجرای کانتینرهای Ollama؛ برای `remote` خالی بگذارید |
-| `LLM_BASE_URL` | `http://ollama:11434/v1` | هر API سازگار با OpenAI |
-| `LLM_MODEL` | پیش‌فرض پروفایل | تعیین دستی مدل زبانی (برای `remote` **الزامی**) |
-| `LLM_API_KEY` | `ollama` | کلید API (برای `remote`) |
-| `LLM_TIMEOUT` | `180` | حداکثر زمان انتظار برای جواب (ثانیه) |
-| `CHAT_MEMORY` | `10` | تعداد پیام‌های قبلی که چت به خاطر می‌سپارد (۰ تا ۵۰) |
+| `LLM_PROVIDERS` | `gemini,groq,github,local` | ترتیب امتحان سرویس‌های هوش مصنوعی؛ سرویس‌های بدون کلید رد می‌شوند |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | خالی / `gemini-flash-latest` | API رایگان Gemini گوگل |
+| `GROQ_API_KEY` / `GROQ_MODEL` | خالی / `openai/gpt-oss-120b` | API رایگان Groq |
+| `GITHUB_TOKEN` / `GITHUB_MODEL` | خالی / `openai/gpt-4.1-mini` | API رایگان GitHub Models |
+| `LLM_BASE_URL` | `http://ollama:11434/v1` | سرویس `local`: Ollama یا هر API سازگار با OpenAI (مثل OpenRouter) |
+| `LLM_MODEL` | پیش‌فرض پروفایل | مدل سرویس `local` |
+| `LLM_API_KEY` | `ollama` | کلید API سرویس `local` |
+| `LOCAL_TOOLS` | `auto` | ابزارهای Agent با مدل لوکال: `auto` (بر اساس نوع مدل)، `on`، `off` |
+| `LLM_TIMEOUT` | `180` | حداکثر زمان انتظار برای مدل لوکال (ثانیه) |
+| `CHAT_MEMORY` | `10` | تعداد پیام‌های قبلی که دستیار می‌بیند (۰ تا ۵۰) |
 | `CHAT_KEEP` | `20` | تعداد گفتگوهای قبلی که در 🗂 Chats نگه داشته می‌شود |
-| `OLLAMA_KEEP_ALIVE` | `30m` | مدت ماندن مدل در رم بعد از آخرین پیام (`-1` یعنی همیشه) |
-| `STT_ENABLED` | `true` | فعال بودن تبدیل صوت به متن |
-| `STT_MODEL` | پیش‌فرض پروفایل | تعیین دستی مدل Whisper |
-| `MORNING_TIME` … `NIGHT_TIME` | `09:00` `12:00` `16:00` `19:00` `22:00` | ساعت پیش‌فرض صبح، ظهر، بعدازظهر، عصر و شب (`MORNING_TIME`، `NOON_TIME`، `AFTERNOON_TIME`، `EVENING_TIME`، `NIGHT_TIME`) |
+| `OLLAMA_KEEP_ALIVE` | `30m` | مدت ماندن مدل لوکال در رم بعد از آخرین پیام (`-1` یعنی همیشه) |
+| `STT_ENABLED` / `STT_MODEL` | `true` / پیش‌فرض پروفایل | تبدیل صوت به متن (نسخه ۰٫۶) |
+| `MORNING_TIME` … `NIGHT_TIME` | `09:00` `12:00` `16:00` `19:00` `22:00` | ساعت پیش‌فرض صبح، ظهر، بعدازظهر، عصر و شب |
 | `MORNING_BRIEFING_TIME` | `08:00` | ساعت ارسال خلاصه صبحگاهی |
-| `DAILY_REPORT_TIME` | `22:00` | ساعت گزارش شبانه |
+| `DAILY_REPORT_TIME` | `22:00` | ساعت گزارش شبانه (نسخه ۰٫۵) |
 | `LOG_LEVEL` | `INFO` | سطح لاگ |
 
-**پروفایل‌های سخت‌افزاری**
+**پروفایل‌های سخت‌افزاری** (در همه پروفایل‌ها، اگر کلید API باشد، سرویس‌های رایگان اول امتحان می‌شوند)
 
-| پروفایل | رم | مدل زبانی | Whisper |
+| پروفایل | رم | مدل لوکال | بدون کلید API |
 |---|---|---|---|
-| `lite` | ۲ گیگ | `gemma3:1b` | `tiny` |
-| `standard` | ۴ گیگ | `qwen2.5:3b` | `base` |
-| `full` | ۸ گیگ و بیشتر | `qwen2.5:7b` | `small` |
-| `remote` | — | API خارجی | `base` |
+| `lite` | ۲ گیگ | `gemma3:1b` (فقط چت) | فهم قانون‌محور + چت لوکال |
+| `standard` | ۴ گیگ | `qwen3:4b` (Agent) | Agent لوکال، کندتر روی CPU |
+| `full` | ۸ گیگ و بیشتر | `qwen3:8b` (Agent) | Agent لوکال |
+| `remote` | — | ندارد | کلید API یا `LLM_MODEL` لازم است |
+
+دقت و سرعت مدل‌ها را روی سرور خودتان بسنجید: `docker compose exec bot python scripts/eval_agent.py`
 
 ### نقشه سورس کد
 
 - `app/main.py`: نقطه شروع برنامه (لاگ، مایگریشن، زمان‌بند، اجرای ربات)
 - `app/config.py`: همه تنظیمات `.env` و پروفایل‌های سخت‌افزاری
 - `app/texts.py`: همه متن‌هایی که کاربر می‌بیند (برای تغییر متن‌ها فقط همین فایل را ویرایش کنید)
+- `app/agent/`: مغز برنامه، یک Agent هوش مصنوعی با ابزارهای مشخص
+  - `core.py`: حلقه اصلی (مدل ← درخواست ابزار ← نتیجه ← جواب کوتاه)
+  - `tools/`: ابزارهای هزینه، یادآور و عمومی (گزارش، تاریخ، تنظیمات) همراه با بررسی ورودی‌ها
+  - `actions.py`: ثبت کارهای انجام‌شده برای ↩️ برگشت
+  - `context.py`: اطلاعات هر پیام (زمان فعلی و جدول تاریخ‌ها به شمسی و میلادی)
+  - `prompt.py`: پرامپت سیستمی
+- `app/llm/`: اتصال به مدل‌ها؛ `client.py` یک سرویس سازگار با OpenAI و `providers.py` زنجیره جایگزینی
+  خودکار (Gemini ← Groq ← GitHub ← لوکال)
 - `app/bot/`: لایه تلگرام، بدون منطق اصلی برنامه
-  - `handlers/`: برای هر قابلیت یک فایل جدا (`chat.py` چت، `chats.py` چت‌های قبلی، `reminders.py`
-    یادآورها، `expenses.py` هزینه‌ها، `reports.py` گزارش‌ها، `categories.py` مدیریت دسته‌ها،
-    `fallback.py` پیام‌های ناشناخته)
-  - `keyboards/`: منوی اصلی (`reply.py`) و دکمه‌های زیر پیام (`inline.py`)
-  - `middlewares/`: محدودیت دسترسی به مالک، لاگ، باز کردن سشن دیتابیس و خروج از فرم با دکمه‌های منو
-  - `views.py`: ساخت متن پیام‌ها (کارت یادآور، اعلان، خلاصه صبحگاهی، کارت هزینه، گزارش)
-  - `streaming.py`: نمایش تدریجی جواب مدل با ویرایش پیام تلگرام
-  - `states.py`: وضعیت‌های فرم‌های چندمرحله‌ای (FSM)
-- `app/core/`: پردازش متن بدون مدل زبانی
-  - `normalizer.py`: اعداد فارسی، اعداد حروفی («صد و پنجاه»)، حروف عربی و نیم‌فاصله
-  - `parsers/`: پیدا کردن تاریخ، ساعت و تکرار (`datetime_parser.py`)، تحلیل جمله یادآور (`rules.py`)،
-    پیدا کردن مبلغ و مقدار (`amount_parser.py`) و تحلیل جمله هزینه (`expense_rules.py`)
-- `app/llm/`: اتصال به مدل زبانی (`client.py`)، پرامپت‌ها (`prompts/`) و قالب خروجی JSON (`schemas.py`)
-- `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (تنظیمات، چت، ماشین‌حساب، یادآورها، هزینه‌ها و
-  دسته‌ها، گزارش‌ها، و کمک مدل زبانی برای یادآور و هزینه)
-- `app/scheduler/`: کارهای زمان‌بندی‌شده: ارسال یادآورها و خلاصه صبحگاهی
-- `app/db/`: جدول‌ها (`models.py`) و اتصال دیتابیس و مایگریشن (`session.py`)
-- `app/utils/`: ابزارهای کمکی مثل تاریخ شمسی/میلادی و تبدیل Markdown به HTML تلگرام
-- `migrations/`: مایگریشن‌های Alembic
-- `tests/`: تست‌ها (بدون نیاز به اینترنت یا مدل واقعی)
-- `docker/`: فایل Dockerfile، اسکریپت شروع کانتینر و `ollama-init.sh` برای دانلود مدل
+  - `handlers/`: `assistant.py` (پیام آزاد ← Agent)، چت‌های قبلی، تنظیمات، دسته‌ها، یادآورها، هزینه‌ها و
+    گزارش‌ها (دکمه‌ها و روش قانون‌محور پشتیبان)، منو و پیام‌های ناشناخته
+  - `agent_ui.py`: کارت نتیجه‌ها با ↩️ برگشت / ✏️ ویرایش
+  - `keyboards/`، `middlewares/`، `views.py`، `streaming.py`، `states.py`
+- `app/core/`: ابزارهای دقیق زبانی بدون هوش مصنوعی: نرمال‌سازی متن، پیدا کردن ارجاع‌ها
+  («تایم دکتر» ← یادآور دکتر) و پارسرهای تاریخ، مبلغ، یادآور و هزینه
+- `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (یادآورها، هزینه‌ها، گزارش‌ها، تاریخچه چت، تنظیمات)
+- `app/scheduler/`: ارسال یادآورها و خلاصه صبحگاهی
+- `app/db/`، `app/utils/`، `migrations/`، `tests/`، `docker/`
+- `scripts/eval_agent.py`: سنجش دقت و سرعت هر مدل روی پیام‌های واقعی فارسی و انگلیسی
 
-مسیر هر پیام: **تلگرام ← میدل‌ورها ← هندلر ← سرویس ← دیتابیس / مدل زبانی**
-
-پیامی که «یادم بنداز» یا "remind me" دارد به `handlers/reminders.py` می‌رسد: `core/parsers` زمان رویداد،
-زمان اعلان و موضوع را استخراج می‌کند، `services/reminders.py` تعیین می‌کند چه چیزی هنوز باید پرسیده
-شود، و `scheduler/jobs.py` اعلان‌ها را ارسال می‌کند. پیامی که مبلغ دارد («۵۰ هزار») به `handlers/expenses.py`
-می‌رسد و `core/parsers/expense_rules.py` آن را به چند هزینه تقسیم می‌کند؛ «گزارش …» به `handlers/reports.py`
-می‌رسد. بقیه پیام‌ها به `handlers/chat.py` می‌رسند: محاسبه و
-سوال تاریخ فوراً از `services/tools.py` جواب می‌گیرند و بقیه را مدل زبانی از طریق `services/chat.py`
-جواب می‌دهد.
+مسیر هر پیام: **تلگرام ← میدل‌ورها ← `handlers/assistant.py` ← `agent/core.py` ↔ `llm/providers.py` ←
+`agent/tools/*` ← `services/*` ← دیتابیس** و نتیجه‌ها به صورت کارت از `bot/agent_ui.py` برمی‌گردند.
 
 ### توسعه
 

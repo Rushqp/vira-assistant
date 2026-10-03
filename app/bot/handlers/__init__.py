@@ -3,6 +3,7 @@
 from aiogram import Router
 
 from app.bot.handlers import (
+    assistant,
     categories,
     chat,
     chats,
@@ -18,10 +19,9 @@ from app.bot.handlers import (
 
 def build_router() -> Router:
     router = Router(name="root")
-    # Order matters: specific buttons/commands first; then the free-text features, each with
-    # its own form states and detector: `reminders` ("remind me" / «یادم بنداز»), `reports`
-    # («گزارش این ماه»), `expenses` (an amount + «دادم» / تومن); then `chat` (all remaining
-    # free text), then `fallback` (everything else).
+    # Order matters: buttons, commands and the forms' states first; then `assistant`, which
+    # sends every other text message to the agent (or the rule-based fallback); then
+    # `fallback` for everything that isn't text.
     router.include_routers(
         start.router,
         settings.router,
@@ -32,6 +32,7 @@ def build_router() -> Router:
         reports.router,
         expenses.router,
         chat.router,
+        assistant.router,
         fallback.router,
     )
     return router

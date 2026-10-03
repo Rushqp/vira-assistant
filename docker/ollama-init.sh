@@ -10,8 +10,8 @@ if [ -n "$LLM_MODEL" ]; then
 else
     case "$PROFILE" in
         lite) MODEL="gemma3:1b" ;;
-        standard) MODEL="qwen2.5:3b" ;;
-        full) MODEL="qwen2.5:7b" ;;
+        standard) MODEL="qwen3:4b" ;;
+        full) MODEL="qwen3:8b" ;;
         remote) echo "PROFILE=remote: nothing to pull."; exit 0 ;;
         *) echo "Unknown PROFILE '$PROFILE'"; exit 1 ;;
     esac

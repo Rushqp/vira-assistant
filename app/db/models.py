@@ -82,7 +82,7 @@ class Reminder(Base):
     # Comma-separated alert specs relative to the event: at, before:15, day_before:22:00, ...
     alert_specs: Mapped[str] = mapped_column(String(255), default="at")
     important: Mapped[bool] = mapped_column(Boolean, default=False)
-    status: Mapped[str] = mapped_column(String(16), default="active")  # active | done
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active | done | cancelled
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     alerts: Mapped[list["ReminderAlert"]] = relationship(
@@ -150,3 +150,24 @@ class Expense(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     category: Mapped[Category] = relationship(lazy="joined")
+
+
+# --- Agent (v0.4) ---
+
+
+class AgentAction(Base):
+    """Something the assistant did, with what is needed to undo it (↩️ Undo survives restarts).
+
+    kind: expenses_added | expenses_deleted | expense_updated | reminder_created |
+          reminders_cancelled | reminder_updated | settings_updated
+    """
+
+    __tablename__ = "agent_actions"
+    __table_args__ = {"sqlite_autoincrement": True}  # ids are used in buttons
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    payload: Mapped[str] = mapped_column(Text)  # JSON
+    summary: Mapped[str] = mapped_column(Text, default="")  # one line, shown to the model
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)

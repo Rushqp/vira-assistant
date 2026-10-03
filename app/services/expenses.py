@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.normalizer import normalize
 from app.core.parsers.amount_parser import Currency, to_currency
 from app.core.parsers.expense_rules import ExpenseParse
+from app.core.textmatch import best_match
 from app.db.models import Category, CategoryKeyword, Expense
 from app.services.reminders import to_utc
 
@@ -234,18 +235,30 @@ class ExpenseService:
 
     async def classify(self, description: str) -> Category | None:
         """Learned keywords first, then the built-in ones. None if nothing matches."""
+        return await self.learned_category(description) or await self.keyword_category(description)
+
+    async def learned_category(self, description: str) -> Category | None:
+        """The category the user chose before for this description (corrections are learned)."""
         key = keyword_key(description)
         if not key:
             return None
         learned = (await self.session.execute(select(CategoryKeyword))).scalars().all()
         matches = [k for k in learned if k.keyword == key or _contains(key, k.keyword)]
-        if matches:
-            best = max(matches, key=lambda k: len(k.keyword))
-            return await self.category(best.category_id)
+        if not matches:
+            return None
+        best = max(matches, key=lambda k: len(k.keyword))
+        return await self.category(best.category_id)
+
+    async def keyword_category(self, description: str) -> Category | None:
         name = builtin_category(description)
-        if name:
-            return await self.session.scalar(select(Category).where(Category.name == name))
-        return None
+        return await self.category_by_name(name) if name else None
+
+    async def category_by_name(self, name: str) -> Category | None:
+        """Case-insensitive; an emoji in front of the name is ignored ("🛒 Groceries")."""
+        clean = re.sub(r"^[^\w]+", "", name.strip()).lower()
+        if not clean:
+            return None
+        return await self.session.scalar(select(Category).where(func.lower(Category.name) == clean))
 
     async def learn(self, description: str, category_id: int) -> None:
         key = keyword_key(description)
@@ -287,6 +300,83 @@ class ExpenseService:
 
     async def get(self, expense_id: int) -> Expense | None:
         return await self.session.get(Expense, expense_id)
+
+    async def by_ids(self, expense_ids: list[int]) -> list[Expense]:
+        rows = await self.session.scalars(
+            select(Expense).where(Expense.id.in_(expense_ids)).order_by(Expense.id)
+        )
+        return list(rows.unique().all())
+
+    async def search(
+        self, query: str, start: date, end: date
+    ) -> tuple[Expense | None, list[Expense]]:
+        """(the single clear match, all matches) among expenses of [start, end)."""
+        return best_match(
+            await self.between(start, end),
+            query,
+            key=lambda e: f"{e.description} {e.category.name}",
+        )
+
+    async def update(
+        self,
+        expense_id: int,
+        *,
+        amount: int | None = None,
+        description: str | None = None,
+        category_id: int | None = None,
+        spent_on: str | None = None,
+        now: datetime | None = None,
+    ) -> tuple[Expense, dict] | None:
+        """Change fields of an expense. Returns (expense, previous row) for ↩️ Undo."""
+        expense = await self.get(expense_id)
+        if expense is None:
+            return None
+        previous = self.to_row(expense)
+        if amount is not None:
+            expense.amount = amount
+        if description is not None:
+            expense.description = description
+        if category_id is not None:
+            expense.category_id = category_id
+        if spent_on is not None:
+            expense.spent_at = self._spent_at(spent_on, now or datetime.now(self.timezone))
+        await self.session.commit()
+        await self.session.refresh(expense)
+        return expense, previous
+
+    @staticmethod
+    def to_row(expense: Expense) -> dict:
+        return {
+            "id": expense.id,
+            "amount": expense.amount,
+            "category_id": expense.category_id,
+            "description": expense.description,
+            "quantity": expense.quantity,
+            "unit": expense.unit,
+            "spent_at": expense.spent_at.isoformat(),
+            "raw_text": expense.raw_text,
+            "created_at": expense.created_at.isoformat(),
+        }
+
+    async def restore(self, rows: list[dict]) -> list[Expense]:
+        """Put deleted expenses back (same ids) or revert edited ones to `rows`."""
+        restored = []
+        for row in rows:
+            values = {
+                **row,
+                "spent_at": datetime.fromisoformat(row["spent_at"]),
+                "created_at": datetime.fromisoformat(row["created_at"]),
+            }
+            expense = await self.get(row["id"])
+            if expense is None:
+                expense = Expense(**values)
+                self.session.add(expense)
+            else:
+                for key, value in values.items():
+                    setattr(expense, key, value)
+            restored.append(expense)
+        await self.session.commit()
+        return restored
 
     async def delete(self, expense_ids: list[int]) -> int:
         result = await self.session.execute(delete(Expense).where(Expense.id.in_(expense_ids)))
