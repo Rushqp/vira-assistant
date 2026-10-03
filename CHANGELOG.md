@@ -22,6 +22,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - Confirmation card with Save / ⭐ / Edit / Cancel
   - Notifications with ✅ Done, ⏰ +10 min, ⏰ +1 hour; alerts missed while offline are sent late
   - 📋 Reminders: list, view, edit, delete
+  - Many phrasings recognised: «یادآوری تنظیم کن», «یاد اوری» (without madda), «آلارم بذار»,
+    "set a reminder", and, when a time is given, «خبرم کن», «بیدارم کن», "wake me up"
 - ☀️ **Morning briefing** (`MORNING_BRIEFING_TIME`, default 08:00): today's reminders, important ones
   first; toggle in ⚙️ Settings; a missed briefing is sent after a morning restart
 - 🗂 **Previous chats**: list (10 per page), continue a chat (shows the last 3 exchanges), delete;
