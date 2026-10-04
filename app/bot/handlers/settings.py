@@ -20,6 +20,7 @@ from app.config import Calendar, Settings
 from app.core.parsers.rules import parse_clock
 from app.llm.providers import ProviderChain, describe_providers
 from app.services.settings import NIGHTLY_EARLIEST, SettingsService
+from app.stt.chain import SpeechChain, describe_engines
 from app.utils.calendar import format_date, now_local
 
 router = Router(name="settings")
@@ -39,12 +40,13 @@ def render_settings(
     briefing_at: time | None = None,
     nightly: bool = True,
     nightly_at: time | None = None,
+    voice: str | None = None,
 ) -> str:
-    stt = (
-        texts.STT_ON.format(model=config.effective_stt_model)
-        if config.stt_enabled
-        else texts.STT_OFF
-    )
+    engines = voice if voice is not None else describe_engines(config)
+    if not config.stt_enabled:
+        stt = texts.STT_OFF
+    else:
+        stt = texts.STT_ON.format(model=html.escape(engines or texts.STT_NO_ENGINE))
     return texts.SETTINGS.format(
         calendar=texts.CALENDAR_NAMES[calendar],
         timezone=config.tz,
@@ -85,11 +87,14 @@ async def _set_digest(
         await settings_service.set_nightly(enabled)
 
 
-async def _screen(config: Settings, settings_service: SettingsService, llm: object):
+async def _screen(
+    config: Settings, settings_service: SettingsService, llm: object, stt: object = None
+):
     calendar = await settings_service.get_calendar()
     briefing, briefing_at = await digest_state("briefing", config, settings_service)
     nightly, nightly_at = await digest_state("nightly", config, settings_service)
     model = llm.model if isinstance(llm, ProviderChain) and llm.clients else None
+    voice = " → ".join(e.label for e in stt.engines) if isinstance(stt, SpeechChain) else None
     text = render_settings(
         config,
         calendar,
@@ -98,6 +103,7 @@ async def _screen(config: Settings, settings_service: SettingsService, llm: obje
         briefing_at=briefing_at,
         nightly=nightly,
         nightly_at=nightly_at,
+        voice=voice,
     )
     return text, settings_menu(calendar)
 
@@ -120,9 +126,13 @@ async def _edit(message: Message, text: str, markup: InlineKeyboardMarkup) -> No
 
 @router.message(F.text == texts.BTN_SETTINGS)
 async def show_settings(
-    message: Message, config: Settings, settings_service: SettingsService, llm: object
+    message: Message,
+    config: Settings,
+    settings_service: SettingsService,
+    llm: object,
+    stt: object = None,
 ) -> None:
-    text, markup = await _screen(config, settings_service, llm)
+    text, markup = await _screen(config, settings_service, llm, stt)
     await message.answer(text, reply_markup=markup)
 
 
@@ -134,10 +144,11 @@ async def back_to_settings(
     config: Settings,
     settings_service: SettingsService,
     llm: object,
+    stt: object = None,
 ) -> None:
     if await state.get_state() == SettingsForm.digest_time.state:
         await state.clear()
-    text, markup = await _screen(config, settings_service, llm)
+    text, markup = await _screen(config, settings_service, llm, stt)
     if isinstance(query.message, Message):
         await _edit(query.message, text, markup)
     await query.answer()
@@ -145,10 +156,14 @@ async def back_to_settings(
 
 @router.callback_query(SettingsCb.filter(F.action == "toggle_calendar"))
 async def toggle_calendar(
-    query: CallbackQuery, config: Settings, settings_service: SettingsService, llm: object
+    query: CallbackQuery,
+    config: Settings,
+    settings_service: SettingsService,
+    llm: object,
+    stt: object = None,
 ) -> None:
     calendar = await settings_service.toggle_calendar()
-    text, markup = await _screen(config, settings_service, llm)
+    text, markup = await _screen(config, settings_service, llm, stt)
     if isinstance(query.message, Message):
         await _edit(query.message, text, markup)
     await query.answer(texts.CALENDAR_CHANGED.format(calendar=texts.CALENDAR_NAMES[calendar]))

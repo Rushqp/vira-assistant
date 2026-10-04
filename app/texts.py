@@ -38,7 +38,7 @@ WELCOME = (
 
 HELP = (
     "<b>How to use Vira</b>\n\n"
-    "• Ask me anything in English or Persian, just write it.\n"
+    "• Ask me anything in English or Persian: write it or send a voice message 🎙\n"
     "• I can calculate (<i>12*350000</i>) and tell you today's date (<i>what's the date?</i>).\n"
     "• 💬 <b>New Chat</b> starts a fresh conversation, 🗂 <b>Chats</b> continues an old one.\n"
     "• Reminders, just write them:\n"
@@ -70,7 +70,7 @@ NOTHING_TO_CANCEL = "There's nothing to cancel."
 
 COMING_SOON = "🚧 <b>{feature}</b> is coming in <b>{version}</b>. Stay tuned!"
 UNKNOWN_COMMAND = "I don't know that command. See /help."
-UNSUPPORTED_MESSAGE = "I can only read text messages for now."
+UNSUPPORTED_MESSAGE = "I can read text, voice messages and audio files."
 
 # --- Chat ---
 NEW_CHAT = "🆕 New chat started. Ask me anything!"
@@ -424,3 +424,24 @@ BTN_SWITCH_CALENDAR = "📅 Switch to {calendar}"
 CALENDAR_CHANGED = "✅ Calendar set to {calendar}"
 STT_ON = "on ({model})"
 STT_OFF = "off"
+STT_NO_ENGINE = "no engine: add GROQ_API_KEY"
+
+# --- Voice messages (app/bot/middlewares/voice.py) ---
+VOICE_HEARD = "🎙 «{text}»"
+VOICE_OFF = "🎙 Voice messages are turned off (STT_ENABLED in .env). Please type your message."
+VOICE_NO_ENGINE = (
+    "🎙 I can't understand voice messages yet: add a free GROQ_API_KEY (or GEMINI_API_KEY) in "
+    ".env. Please type your message for now."
+)
+VOICE_TOO_LONG = "🎙 This recording is about {minutes} min long; I can transcribe up to {limit} min."
+VOICE_TOO_BIG = "🎙 This file is larger than 20 MB, which bots can't download."
+VOICE_FAILED = "🎙 I couldn't transcribe this voice message. Please try again, or type it."
+VOICE_EMPTY = "🎙 I couldn't hear any words in it."
+VOICE_SWITCHED = (
+    "🔁 <b>{previous}</b> isn't available ({reason}), so <b>{model}</b> transcribed your voice "
+    "message."
+)
+VOICE_RESTORED = "✅ <b>{model}</b> is transcribing voice messages again."
+VOICE_DOWN = (
+    "⚠️ Voice messages can't be transcribed right now ({reasons}). Please type, or try again later."
+)

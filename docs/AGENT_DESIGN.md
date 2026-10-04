@@ -218,7 +218,8 @@ defaults can be benchmarked on the real server.
 ## 11. What to revisit
 
 - Benchmark local defaults per profile with `scripts/eval_agent.py` on the real server.
-- Voice (v0.6) will feed transcripts into the same agent.
+- Voice (v0.6) feeds transcripts into the same agent, with a note that the text comes from
+  speech (recognition errors are possible); watch how models handle mis-heard words.
 - Notes / to-dos (v0.7) become new tools (and `export_*` gains them).
 - If quotas tighten: a small classifier to answer trivial chat locally and save API calls.
 - Proactive suggestions (e.g. budget warnings) once there is enough data.

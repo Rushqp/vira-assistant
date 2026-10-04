@@ -7,7 +7,7 @@
 
 [English](#english) · [فارسی](#فارسی)
 
-![version](https://img.shields.io/badge/version-0.5.0-blue)
+![version](https://img.shields.io/badge/version-0.6.0-blue)
 ![python](https://img.shields.io/badge/python-3.12-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 [![CI](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml)
@@ -32,6 +32,7 @@ acts:
 - *«نه، ماست ۲۵۰ هزار بود»* → the expense is corrected
 - *«این ماه چقدر خرج کردم؟»* → a monthly report
 - *«اکسل خرج‌های خوراکی مهر رو بده»* → an Excel file with totals and charts
+- 🎙 a voice message → Vira shows what it heard and does it, like a typed message
 - and ordinary questions, answered in your language
 
 Every action shows what was done, with **↩️ Undo** and **✏️ Edit** buttons. Vira only asks when
@@ -51,7 +52,7 @@ never depend on the AI. Design: [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md).
 | **v0.3.0** | Reminders (fa/en date parser, both calendars, repeats, snooze), morning briefing, previous chats | ✅ Done |
 | **v0.4.0** | **AI agent** (understands any phrasing, follow-ups, undo / edit), free AI models from 5 providers with failover, model switching in the bot and notices, expenses, 13 categories with learning, reports | ✅ Done |
 | **v0.5.0** | **Excel files from the chat** (expenses, reminders, any table), nightly report, briefing and report times in Settings | ✅ Done |
-| v0.6.0 | Voice → text (faster-whisper) | |
+| **v0.6.0** | **Voice messages and audio files** → text (free Groq Whisper / Gemini, local faster-whisper as backup), handled like typed text | ✅ Done |
 | v0.7.0 | Notes, to-dos, backup | |
 | v1.0.0 | Full tests, optimization, install guide | |
 
@@ -149,6 +150,12 @@ All of these have a free tier. Add any of the keys to `.env` (more keys = more b
   recorded), this month so far and tomorrow's reminders.
 - ⚙️ **Settings → ☀️ Morning briefing / 🌙 Nightly report:** on / off and the time (or just say
   *«گزارش شبانه رو ساعت ۱۱ بفرست»*).
+- 🎙 **Voice messages and audio files:** just talk. Vira shows what it heard («🎙 …») and then
+  handles it exactly like a typed message, also as the answer to one of its questions.
+  Transcription uses free Groq Whisper large-v3 first (`GROQ_API_KEY`, about 8 hours of
+  audio a day), then Gemini, and faster-whisper on your server as the backup (`standard`:
+  `small`, `full`: `large-v3-turbo`; downloaded the first time it is needed). Up to 10 minutes
+  per recording; round videos are not transcribed.
 - 💬 **New Chat** starts a fresh conversation; 🗂 **Chats** continues an older one.
 - 🤖 **AI model** (⚙️ Settings or `/model`): see which models are ready and choose the one that
   answers first.
@@ -179,7 +186,10 @@ All of these have a free tier. Add any of the keys to `.env` (more keys = more b
 | `CHAT_MEMORY` | `10` | How many previous messages the assistant sees (0–50) |
 | `CHAT_KEEP` | `20` | How many previous chats are kept in 🗂 Chats |
 | `OLLAMA_KEEP_ALIVE` | `30m` | How long the local model stays in RAM after use (`-1` = forever) |
-| `STT_ENABLED` / `STT_MODEL` | `true` / profile default | Voice transcription (v0.6) |
+| `STT_ENABLED` | `true` | Voice messages and audio files are transcribed |
+| `STT_PROVIDERS` | `groq,gemini,local` | Order of the speech-to-text engines; ones without a key or model are skipped |
+| `GROQ_STT_MODEL` | `whisper-large-v3` | Groq Whisper model (or `whisper-large-v3-turbo`) |
+| `STT_MODEL` | profile default | Local faster-whisper model (`tiny` … `large-v3`, `large-v3-turbo`) |
 | `MORNING_TIME` … `NIGHT_TIME` | `09:00` `12:00` `16:00` `19:00` `22:00` | Clock times for morning, noon, afternoon, evening, night |
 | `MORNING_BRIEFING_TIME` | `08:00` | Default time of the morning briefing (change it in ⚙️ Settings) |
 | `DAILY_REPORT_TIME` | `22:00` | Default time of the nightly report (change it in ⚙️ Settings) |
@@ -187,12 +197,12 @@ All of these have a free tier. Add any of the keys to `.env` (more keys = more b
 
 **Hardware profiles** (the free APIs come first in every profile when a key is set)
 
-| Profile | RAM | Local model | Without an API key |
-|---|---|---|---|
-| `lite` | 2 GB | `gemma3:1b` (chat only) | rule-based understanding + local chat |
-| `standard` | 4 GB | `qwen3:4b` (agent) | local agent, slower on CPU |
-| `full` | 8 GB+ | `qwen3:8b` (agent) | local agent |
-| `remote` | — | none | needs an API key or `LLM_MODEL` |
+| Profile | RAM | Local model | Local Whisper (voice backup) | Without an API key |
+|---|---|---|---|---|
+| `lite` | 2 GB | `gemma3:1b` (chat only) | none | rule-based understanding + local chat, no voice |
+| `standard` | 4 GB | `qwen3:4b` (agent) | `small` | local agent, slower on CPU |
+| `full` | 8 GB+ | `qwen3:8b` (agent) | `large-v3-turbo` | local agent |
+| `remote` | — | none | none | needs an API key or `LLM_MODEL` |
 
 Measure accuracy and speed of your models on your own server:
 `docker compose exec bot python scripts/eval_agent.py` (`--all` = every model of the menu).
@@ -213,14 +223,18 @@ app/
 │   └── prompt.py      #   the system prompt
 ├── llm/               # client.py = one OpenAI-compatible endpoint, models.py = free models,
 │                      #   providers.py = failover chain (Gemini → Groq → Mistral → GitHub →
-│                      #   OpenRouter → local), chosen model, switch notices; prompts/
+│                      #   OpenRouter → local), chosen model; failover.py = cooldowns and
+│                      #   switch notices (shared with stt/); prompts/
+├── stt/               # Voice → text: engines.py (Groq Whisper, Gemini, local
+│                      #   faster-whisper), chain.py (order, failover)
 ├── bot/               # Telegram layer, no business logic
 │   ├── handlers/      #   assistant (free text → agent), chats, settings, categories, ai_models
 │   │                  #   (🤖 AI model), reminders, expenses, reports (buttons + rule-based
 │   │                  #   fallback), menu, fallback
 │   ├── agent_ui.py    #   result cards with ↩️ Undo / ✏️ Edit, model switch notices
 │   ├── keyboards/     #   reply.py = main menu, inline.py = buttons under messages
-│   ├── middlewares/   #   owner_only, logging, db (session + services), menu_reset, notices
+│   ├── middlewares/   #   owner_only, logging, db (session + services), voice (voice → text
+│   │                  #   before routing), menu_reset, notices
 │   ├── views.py       #   reminder cards, notifications, briefing, expense cards, reports
 │   ├── streaming.py   #   shows a streamed answer by editing the Telegram message
 │   └── states.py      #   FSM states
@@ -287,6 +301,7 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 - «نه، ماست ۲۵۰ هزار بود» ← هزینه اصلاح می‌شود
 - «این ماه چقدر خرج کردم؟» ← گزارش ماه
 - «اکسل خرج‌های خوراکی مهر رو بده» ← فایل اکسل با جمع‌ها و نمودار
+- 🎙 پیام صوتی ← ویرا متنی را که شنیده نشان می‌دهد و مثل پیام تایپی انجامش می‌دهد
 - و سوال‌های معمولی که به زبان خودتان جواب داده می‌شوند
 
 نتیجه هر کار با دکمه‌های **↩️ برگشت** و **✏️ ویرایش** نشان داده می‌شود. ویرا فقط وقتی چیزی واقعاً مبهم
@@ -306,7 +321,7 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 | **v0.3.0** | یادآورها (پارسر تاریخ فارسی/انگلیسی، هر دو تقویم، تکرار، تعویق)، خلاصه صبحگاهی، چت‌های قبلی | ✅ انجام شد |
 | **v0.4.0** | **Agent هوش مصنوعی** (فهم هر جمله، پیگیری حرف‌های قبلی، برگشت / ویرایش)، مدل‌های رایگان هوش مصنوعی از ۵ سرویس با جایگزینی خودکار، عوض کردن مدل داخل ربات و اعلان، هزینه‌ها، ۱۳ دسته با یادگیری، گزارش‌ها | ✅ انجام شد |
 | **v0.5.0** | **فایل اکسل از داخل چت** (هزینه‌ها، یادآورها، هر جدولی)، گزارش شبانه، تنظیم ساعت خلاصه صبحگاهی و گزارش شبانه | ✅ انجام شد |
-| v0.6.0 | تبدیل صوت به متن (faster-whisper) | |
+| **v0.6.0** | **پیام صوتی و فایل صوتی** ← متن (Groq Whisper و Gemini رایگان، faster-whisper لوکال به‌عنوان پشتیبان)، دقیقاً مثل پیام تایپی | ✅ انجام شد |
 | v0.7.0 | یادداشت‌ها، کارهای روزانه، پشتیبان‌گیری | |
 | v1.0.0 | تست کامل، بهینه‌سازی، راهنمای نصب | |
 
@@ -415,6 +430,11 @@ docker compose logs -f bot
   هزینه‌های جاافتاده)، جمع ماه تا امروز و یادآورهای فردا.
 - ⚙️ **Settings ← ☀️ Morning briefing / 🌙 Nightly report:** روشن / خاموش کردن و تنظیم ساعت (یا فقط
   بگویید «گزارش شبانه رو ساعت ۱۱ بفرست»).
+- 🎙 **پیام صوتی و فایل صوتی:** فقط حرف بزنید. ویرا اول متنی را که شنیده نشان می‌دهد («🎙 …») و بعد
+  دقیقاً مثل پیام تایپی با آن رفتار می‌کند، حتی وقتی جواب یکی از سؤال‌های خودش باشد. تبدیل صدا اول با
+  Groq Whisper large-v3 رایگان (`GROQ_API_KEY`، حدود ۸ ساعت صدا در روز)، بعد Gemini و در آخر با
+  faster-whisper روی سرور خودتان انجام می‌شود (`standard`: مدل `small`، `full`: مدل `large-v3-turbo`؛
+  اولین باری که لازم شود دانلود می‌شود). هر صدا حداکثر ۱۰ دقیقه؛ ویدیوهای گرد تبدیل نمی‌شوند.
 - 💬 **New Chat** گفتگوی تازه شروع می‌کند و 🗂 **Chats** گفتگوهای قبلی را ادامه می‌دهد.
 - 🤖 **AI model** (در ⚙️ Settings یا با `/model`): وضعیت مدل‌ها را ببینید و مدلی را که اول جواب بدهد
   انتخاب کنید.
@@ -445,7 +465,10 @@ docker compose logs -f bot
 | `CHAT_MEMORY` | `10` | تعداد پیام‌های قبلی که دستیار می‌بیند (۰ تا ۵۰) |
 | `CHAT_KEEP` | `20` | تعداد گفتگوهای قبلی که در 🗂 Chats نگه داشته می‌شود |
 | `OLLAMA_KEEP_ALIVE` | `30m` | مدت ماندن مدل لوکال در رم بعد از آخرین پیام (`-1` یعنی همیشه) |
-| `STT_ENABLED` / `STT_MODEL` | `true` / پیش‌فرض پروفایل | تبدیل صوت به متن (نسخه ۰٫۶) |
+| `STT_ENABLED` | `true` | تبدیل پیام صوتی و فایل صوتی به متن |
+| `STT_PROVIDERS` | `groq,gemini,local` | ترتیب سرویس‌های تبدیل صدا؛ سرویس‌های بدون کلید یا مدل رد می‌شوند |
+| `GROQ_STT_MODEL` | `whisper-large-v3` | مدل Whisper در Groq (یا `whisper-large-v3-turbo`) |
+| `STT_MODEL` | پیش‌فرض پروفایل | مدل faster-whisper لوکال (`tiny` … `large-v3`، `large-v3-turbo`) |
 | `MORNING_TIME` … `NIGHT_TIME` | `09:00` `12:00` `16:00` `19:00` `22:00` | ساعت پیش‌فرض صبح، ظهر، بعدازظهر، عصر و شب |
 | `MORNING_BRIEFING_TIME` | `08:00` | ساعت پیش‌فرض خلاصه صبحگاهی (در ⚙️ Settings قابل تغییر) |
 | `DAILY_REPORT_TIME` | `22:00` | ساعت پیش‌فرض گزارش شبانه (در ⚙️ Settings قابل تغییر) |
@@ -453,12 +476,12 @@ docker compose logs -f bot
 
 **پروفایل‌های سخت‌افزاری** (در همه پروفایل‌ها، اگر کلید API باشد، سرویس‌های رایگان اول امتحان می‌شوند)
 
-| پروفایل | رم | مدل لوکال | بدون کلید API |
-|---|---|---|---|
-| `lite` | ۲ گیگ | `gemma3:1b` (فقط چت) | فهم قانون‌محور + چت لوکال |
-| `standard` | ۴ گیگ | `qwen3:4b` (Agent) | Agent لوکال، کندتر روی CPU |
-| `full` | ۸ گیگ و بیشتر | `qwen3:8b` (Agent) | Agent لوکال |
-| `remote` | — | ندارد | کلید API یا `LLM_MODEL` لازم است |
+| پروفایل | رم | مدل لوکال | Whisper لوکال (پشتیبان صدا) | بدون کلید API |
+|---|---|---|---|---|
+| `lite` | ۲ گیگ | `gemma3:1b` (فقط چت) | ندارد | فهم قانون‌محور + چت لوکال، بدون پیام صوتی |
+| `standard` | ۴ گیگ | `qwen3:4b` (Agent) | `small` | Agent لوکال، کندتر روی CPU |
+| `full` | ۸ گیگ و بیشتر | `qwen3:8b` (Agent) | `large-v3-turbo` | Agent لوکال |
+| `remote` | — | ندارد | ندارد | کلید API یا `LLM_MODEL` لازم است |
 
 دقت و سرعت مدل‌ها را روی سرور خودتان بسنجید: `docker compose exec bot python scripts/eval_agent.py`
 (با `--all` همه مدل‌های منو سنجیده می‌شوند)
@@ -476,13 +499,15 @@ docker compose logs -f bot
   - `prompt.py`: پرامپت سیستمی
 - `app/llm/`: اتصال به مدل‌ها؛ `client.py` یک سرویس سازگار با OpenAI، `models.py` فهرست مدل‌های رایگان و
   `providers.py` زنجیره جایگزینی خودکار (Gemini ← Groq ← Mistral ← GitHub ← OpenRouter ← لوکال) همراه با
-  مدل انتخابی و اعلان تعویض مدل
+  مدل انتخابی؛ `failover.py` وقفه‌ها و اعلان تعویض مدل (مشترک با `stt/`)
+- `app/stt/`: تبدیل صدا به متن؛ `engines.py` (Groq Whisper، Gemini و faster-whisper لوکال) و `chain.py`
+  (ترتیب و جایگزینی خودکار)
 - `app/bot/`: لایه تلگرام، بدون منطق اصلی برنامه
   - `handlers/`: `assistant.py` (پیام آزاد ← Agent)، چت‌های قبلی، تنظیمات، دسته‌ها، `ai_models.py`
     (🤖 AI model)، یادآورها، هزینه‌ها و گزارش‌ها (دکمه‌ها و روش قانون‌محور پشتیبان)، منو و پیام‌های ناشناخته
   - `agent_ui.py`: کارت نتیجه‌ها با ↩️ برگشت / ✏️ ویرایش و اعلان‌های تعویض مدل
-  - `keyboards/`، `middlewares/` (`notices.py` اعلان تعویض مدل را بعد از هر پیام می‌فرستد)، `views.py`،
-    `streaming.py`، `states.py`
+  - `keyboards/`، `middlewares/` (`voice.py` صدا را قبل از مسیریابی به متن تبدیل می‌کند و `notices.py`
+    اعلان تعویض مدل را بعد از هر پیام می‌فرستد)، `views.py`، `streaming.py`، `states.py`
 - `app/core/`: ابزارهای دقیق زبانی بدون هوش مصنوعی: نرمال‌سازی متن، پیدا کردن ارجاع‌ها
   («تایم دکتر» ← یادآور دکتر) و پارسرهای تاریخ، مبلغ، یادآور و هزینه
 - `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (یادآورها، هزینه‌ها، گزارش‌ها، ساخت فایل اکسل،

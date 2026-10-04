@@ -1,4 +1,4 @@
-"""After each update, tell the user when the answering AI model changed.
+"""After each update, tell the user when the answering AI model or speech engine changed.
 
 `ProviderChain` records a notice when a model stops answering (free quota used up, key
 rejected, unreachable …) and the next one takes over, when the preferred model is back, or
@@ -17,9 +17,9 @@ from app.config import Settings
 
 
 class ModelNoticeMiddleware(BaseMiddleware):
-    def __init__(self, llm: object, config: Settings) -> None:
-        self.llm = llm
+    def __init__(self, config: Settings, *sources: object) -> None:
         self.config = config
+        self.sources = [s for s in sources if s is not None]  # ProviderChain, SpeechChain
 
     async def __call__(
         self,
@@ -32,4 +32,5 @@ class ModelNoticeMiddleware(BaseMiddleware):
         finally:
             bot: Bot | None = data.get("bot")
             if bot is not None:
-                await send_notices(bot, self.config.owner_id, self.llm, self.config.timezone)
+                for source in self.sources:
+                    await send_notices(bot, self.config.owner_id, source, self.config.timezone)

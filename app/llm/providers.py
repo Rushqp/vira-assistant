@@ -9,18 +9,28 @@
 - The user can prefer a model (🤖 AI model menu / `/model`): it is tried first, the configured
   order stays as backup.
 - Every change of the answering model is recorded as a `Notice` (switched / restored / down);
-  the bot shows them to the user after the turn (`drain_notices`).
+  the bot shows them to the user after the turn (`drain_notices`). Health and notices live in
+  `failover.py`, shared with the speech engines.
 """
 
 import time
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 from loguru import logger
 
 from app.config import Profile, Settings
 from app.llm.client import ChatMessage, LLMClient, LLMError, LLMResponse
+from app.llm.failover import (  # noqa: F401  (re-exported for callers and tests)
+    COOLDOWN_BASE,
+    COOLDOWN_BROKEN,
+    COOLDOWN_MAX,
+    COOLDOWN_RATE_LIMIT,
+    COOLDOWN_RATE_MAX,
+    Failover,
+    ModelStatus,
+    Notice,
+)
 from app.llm.models import CATALOG, PROVIDER_NAMES
 
 # Free OpenAI-compatible APIs. Models come from the catalog / .env.
@@ -41,12 +51,6 @@ PRESETS: dict[str, dict[str, Any]] = {
 NO_TOOL_MODELS = ("gemma3", "gemma2", "gemma:", "phi3", "tinyllama")
 # Local models offered in the menu (an OpenAI-compatible LLM_BASE_URL may list hundreds).
 MAX_LOCAL_OPTIONS = 8
-
-COOLDOWN_BASE = 30.0  # connection errors, timeouts, 5xx: 30 s, 60 s, 120 s … up to COOLDOWN_MAX
-COOLDOWN_MAX = 600.0
-COOLDOWN_RATE_LIMIT = 60.0  # quota / 429: 1 min, 2 min, 4 min … up to COOLDOWN_RATE_MAX
-COOLDOWN_RATE_MAX = 1800.0
-COOLDOWN_BROKEN = 3600.0  # invalid key or unknown model: won't fix itself quickly
 
 
 def local_supports_tools(model: str, setting: str) -> bool:
@@ -134,43 +138,6 @@ def missing_providers(config: Settings) -> list[str]:
     return [p for p in _order(config) if p in PRESETS and not config.provider_key(p)]
 
 
-# --- Health and notices ---
-
-
-@dataclass
-class _Health:
-    failures: int = 0
-    until: float = 0.0  # monotonic time when the model may be tried again
-    last_error: str = ""  # error kind of the last failure
-
-
-@dataclass
-class Notice:
-    """A change of the answering model, to tell the user about."""
-
-    kind: Literal["switched", "restored", "down"]
-    model: str = ""  # label of the model that answers now (switched / restored)
-    previous: str = ""  # label of the model that stopped answering (switched)
-    reason: str = ""  # error kind of `previous`
-    retry_in: float | None = None  # seconds until `previous` is tried again
-    reasons: dict[str, str] = field(default_factory=dict)  # down: label → error kind
-
-
-@dataclass
-class ModelStatus:
-    client: LLMClient
-    ready: bool
-    reason: str = ""
-    retry_in: float = 0.0
-    answering: bool = False
-
-
-@dataclass
-class _Mode:
-    last: str | None = None  # id of the model that answered last
-    down: bool = False  # a "down" notice was given and nothing answered since
-
-
 class ProviderChain:
     def __init__(
         self,
@@ -181,14 +148,19 @@ class ProviderChain:
         self.base = clients
         self.preferred: LLMClient | None = None
         self.factory = factory
-        self._clock = clock
-        self._health: dict[str, _Health] = {}
-        self._modes: dict[str, _Mode] = {"tools": _Mode(), "chat": _Mode()}
-        self.notices: list[Notice] = []
+        self.failover = Failover(clock)
 
     @classmethod
     def from_settings(cls, config: Settings) -> "ProviderChain":
         return cls(build_clients(config), factory=lambda p, m: make_client(config, p, m))
+
+    @property
+    def notices(self) -> list[Notice]:
+        return self.failover.notices
+
+    @notices.setter
+    def notices(self, value: list[Notice]) -> None:
+        self.failover.notices = value
 
     # --- Order and preference ---
 
@@ -215,60 +187,25 @@ class ProviderChain:
             if match is None and self.factory and model:
                 match = self.factory(provider, model)
             self.preferred = match
-        self._modes = {"tools": _Mode(), "chat": _Mode()}  # fresh start: no stale notices
+        self.failover.reset()  # fresh start: no stale notices
         return self.preferred
 
     def answering(self, need_tools: bool = True) -> LLMClient | None:
-        last = self._modes["tools" if need_tools else "chat"].last
+        last = self.failover.last(_mode(need_tools))
         return next((c for c in self.clients if c.id == last), None)
 
     # --- Health ---
 
-    def _health_of(self, client: LLMClient) -> _Health:
-        return self._health.setdefault(client.id, _Health())
-
     def available(self, need_tools: bool = False) -> list[LLMClient]:
-        now = self._clock()
-        ready = [c for c in self.clients if self._health_of(c).until <= now]
+        ready = self.failover.ready(self.clients)
         return [c for c in ready if c.supports_tools] if need_tools else ready
 
     def has_tool_provider(self) -> bool:
         return any(c.supports_tools for c in self.clients)
 
     def status(self) -> list[ModelStatus]:
-        now = self._clock()
         answering = self.answering(True) or self.answering(False)
-        result = []
-        for client in self.clients:
-            health = self._health_of(client)
-            paused = health.until > now
-            result.append(
-                ModelStatus(
-                    client=client,
-                    ready=not paused,
-                    reason=health.last_error if paused else "",
-                    retry_in=max(health.until - now, 0.0),
-                    answering=answering is not None and client.id == answering.id,
-                )
-            )
-        return result
-
-    def _succeeded(self, client: LLMClient) -> None:
-        self._health[client.id] = _Health()
-
-    def _failed(self, client: LLMClient, error: LLMError) -> None:
-        health = self._health_of(client)
-        health.failures += 1
-        health.last_error = error.kind
-        if error.kind == "rate_limited":
-            backoff = COOLDOWN_RATE_LIMIT * 2 ** (health.failures - 1)
-            pause = error.retry_after or min(backoff, COOLDOWN_RATE_MAX)
-        elif error.kind in ("auth", "model_missing"):
-            pause = COOLDOWN_BROKEN
-        else:
-            pause = min(COOLDOWN_BASE * 2 ** (health.failures - 1), COOLDOWN_MAX)
-        health.until = self._clock() + pause
-        logger.warning("LLM {} failed ({}); paused for {:.0f}s", client.label, error, pause)
+        return self.failover.status(self.clients, answering.id if answering else None)
 
     # --- Notices ---
 
@@ -280,58 +217,22 @@ class ProviderChain:
         agent turn already reported, unless no model can use tools (a chat-only setup)."""
         return self.has_tool_provider() if need_tools else not self.has_tool_provider()
 
-    def _answered(self, client: LLMClient, need_tools: bool) -> None:
-        self._succeeded(client)
-        mode = self._modes["tools" if need_tools else "chat"]
-        previous, mode.last = mode.last, client.id
-        if not self._reports(need_tools):
-            return
-        if mode.down:
-            mode.down = False
-            self.notices.append(Notice("restored", model=client.label))
-            return
-        if previous == client.id:
-            return
-        order = self._order_for(need_tools)
-        rank = {c.id: i for i, c in enumerate(order)}
-        if previous is None or previous not in rank:
-            if order and client.id != order[0].id:  # the first choice didn't answer
-                self.notices.append(self._switched(order[0], client))
-            return
-        if rank.get(client.id, 0) > rank[previous]:
-            stopped = next(c for c in order if c.id == previous)
-            self.notices.append(self._switched(stopped, client))
-        else:
-            self.notices.append(Notice("restored", model=client.label))
+    def _failed(self, client: LLMClient, error: LLMError) -> None:
+        self.failover.failed(client, error)
 
-    def _switched(self, stopped: LLMClient, now_answering: LLMClient) -> Notice:
-        health = self._health_of(stopped)
-        retry_in = health.until - self._clock()
-        return Notice(
-            "switched",
-            model=now_answering.label,
-            previous=stopped.label,
-            reason=health.last_error or "unavailable",
-            retry_in=retry_in if retry_in > 0 else None,
+    def _answered(self, client: LLMClient, need_tools: bool) -> None:
+        self.failover.answered(
+            client, self._order_for(need_tools), _mode(need_tools), self._reports(need_tools)
         )
 
     def _nothing_answered(self, need_tools: bool) -> None:
-        mode = self._modes["tools" if need_tools else "chat"]
-        if mode.down or not self._reports(need_tools):
-            return
-        mode.down, mode.last = True, None
-        reasons = {
-            c.label: self._health_of(c).last_error or "paused" for c in self._order_for(need_tools)
-        }
-        self.notices.append(Notice("down", reasons=reasons))
+        self.failover.nothing_answered(
+            self._order_for(need_tools), _mode(need_tools), self._reports(need_tools)
+        )
 
     def drain_notices(self) -> list[Notice]:
         """Notices since the last call, at most one per kind (the first)."""
-        seen: dict[str, Notice] = {}
-        for notice in self.notices:
-            seen.setdefault(notice.kind, notice)
-        self.notices = []
-        return list(seen.values())
+        return self.failover.drain()
 
     def _candidates(self, need_tools: bool) -> list[LLMClient]:
         candidates = self.available(need_tools)
@@ -430,6 +331,10 @@ class ProviderChain:
         clients = {c.id: c for c in [*self.base, *([self.preferred] if self.preferred else [])]}
         for client in clients.values():
             await client.close()
+
+
+def _mode(need_tools: bool) -> str:
+    return "tools" if need_tools else "chat"
 
 
 def describe_providers(config: Settings) -> str:

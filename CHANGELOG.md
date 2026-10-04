@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-10-04
+
+### Added
+- 🎙 **Voice messages and audio files** (mp3, m4a, ogg, sent as music or as a file) are
+  transcribed and then handled exactly like typed text: the agent, reminders, expenses, Excel
+  files, and answers to the bot's own questions (`app/bot/middlewares/voice.py` turns them into
+  text before routing)
+  - The recognized text is shown first («🎙 …»), so a mistake is visible right away; a caption
+    is kept in front of the transcript
+  - The agent is told the text comes from speech (recognition errors are possible)
+  - Up to 10 minutes and 20 MB per recording; round videos are not transcribed
+- Speech engines with failover (`app/stt`), in `STT_PROVIDERS` order:
+  - **Groq Whisper large-v3** (free with `GROQ_API_KEY`: about 8 hours of audio a day)
+  - **Gemini** (free with `GEMINI_API_KEY`; audio converted to WAV with PyAV; up to 6 minutes)
+  - **local faster-whisper** as the backup: `small` on `standard`, `large-v3-turbo` on `full`,
+    none on `lite` / `remote`; downloaded to `data/models/whisper` the first time it is needed
+  - Persian heard as another language is retried as Persian
+  - A switch of engine is reported like a switch of AI model (🔁 / ✅ / ⚠️)
+- New settings: `STT_PROVIDERS`, `GROQ_STT_MODEL`
+- ⚙️ Settings shows the voice engines
+
+### Changed
+- Local Whisper defaults per profile (was tiny / base / small): only a backup now, since the
+  small models hardly understand Persian
+- Cooldowns and notices moved to `app/llm/failover.py`, shared by AI models and speech engines
+- New dependency: `faster-whisper` (with PyAV); the Docker image grows by about 400 MB, models are
+  downloaded only when needed
+
 ## [0.5.0] - 2026-10-04
 
 ### Added
@@ -171,6 +199,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - GitHub Actions CI: ruff lint + format check, pytest, Docker image build
 - Bilingual (English / Persian) README
 
+[0.6.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.3.0

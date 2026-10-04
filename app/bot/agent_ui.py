@@ -195,8 +195,9 @@ def render_notice(notice: Notice, tz: ZoneInfo) -> str:
     def reason(kind: str) -> str:
         return texts.AI_REASONS.get(kind, kind)
 
+    voice = notice.task == "voice"
     if notice.kind == "switched":
-        text = texts.AI_SWITCHED.format(
+        text = (texts.VOICE_SWITCHED if voice else texts.AI_SWITCHED).format(
             previous=html.escape(notice.previous),
             reason=reason(notice.reason),
             model=html.escape(notice.model),
@@ -206,11 +207,12 @@ def render_notice(notice: Notice, tz: ZoneInfo) -> str:
             text += texts.AI_SWITCHED_RETRY.format(time=f"{at:%H:%M}")
         return text
     if notice.kind == "restored":
-        return texts.AI_RESTORED.format(model=html.escape(notice.model))
+        restored = texts.VOICE_RESTORED if voice else texts.AI_RESTORED
+        return restored.format(model=html.escape(notice.model))
     reasons = ", ".join(
         f"{html.escape(label)}: {reason(kind)}" for label, kind in notice.reasons.items()
     )
-    return texts.AI_DOWN.format(reasons=reasons or "—")
+    return (texts.VOICE_DOWN if voice else texts.AI_DOWN).format(reasons=reasons or "—")
 
 
 async def send_notices(bot: Bot, chat_id: int, llm: object, tz: ZoneInfo) -> None:

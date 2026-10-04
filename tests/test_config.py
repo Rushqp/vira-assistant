@@ -13,9 +13,9 @@ def make(**overrides) -> Settings:
 @pytest.mark.parametrize(
     ("profile", "llm", "stt"),
     [
-        (Profile.LITE, "gemma3:1b", "tiny"),
-        (Profile.STANDARD, "qwen3:4b", "base"),
-        (Profile.FULL, "qwen3:8b", "small"),
+        (Profile.LITE, "gemma3:1b", ""),  # local Whisper is only a backup: none on 2 GB
+        (Profile.STANDARD, "qwen3:4b", "small"),
+        (Profile.FULL, "qwen3:8b", "large-v3-turbo"),
     ],
 )
 def test_profile_defaults(profile, llm, stt):

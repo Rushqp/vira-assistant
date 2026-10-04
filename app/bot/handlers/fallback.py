@@ -1,4 +1,8 @@
-"""Catch-all for anything no other handler took: unknown commands, voice, media."""
+"""Catch-all for anything no other handler took: unknown commands and media.
+
+Voice messages and audio files never get here: they are turned into text before routing
+(`app/bot/middlewares/voice.py`).
+"""
 
 from aiogram import F, Router
 from aiogram.types import Message
@@ -7,11 +11,6 @@ from app import texts
 from app.bot.keyboards.reply import main_menu
 
 router = Router(name="fallback")
-
-
-@router.message(F.voice | F.audio)
-async def voice_not_ready(message: Message) -> None:
-    await message.answer(texts.COMING_SOON.format(feature="Voice messages", version="v0.6"))
 
 
 @router.message(F.text.startswith("/"))

@@ -150,7 +150,7 @@ async def send_cards(message: Message, cards: list[Card], deps: Deps) -> None:
 # --- The agent turn ---
 
 
-async def run_agent(deps: Deps, text: str, hint: str = "") -> None:
+async def run_agent(deps: Deps, text: str, hint: str = "", voice: bool = False) -> None:
     message = deps.message
     chat = await deps.chat_service.active_session()
     history = [
@@ -161,7 +161,12 @@ async def run_agent(deps: Deps, text: str, hint: str = "") -> None:
     async with _generation_lock, ChatActionSender.typing(chat_id=message.chat.id, bot=message.bot):
         try:
             result = await deps.agent.run(
-                deps.tool_context(text), history, text, on_text=streamer.push, hint=hint
+                deps.tool_context(text),
+                history,
+                text,
+                on_text=streamer.push,
+                hint=hint,
+                voice=voice,
             )
         except AgentUnavailable as exc:
             logger.info("Agent unavailable ({}): rule-based fallback", exc)
@@ -350,7 +355,7 @@ async def free_text(message: Message, state: FSMContext, **data) -> None:
         if builtin is not None:
             await message.answer(builtin)
             return
-    await run_agent(deps, text, hint)
+    await run_agent(deps, text, hint, voice=bool(data.get("voice")))
 
 
 # --- Buttons on result cards ---

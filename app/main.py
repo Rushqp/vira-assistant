@@ -22,11 +22,13 @@ from app.bot.middlewares.logging import LoggingMiddleware
 from app.bot.middlewares.menu_reset import MenuResetMiddleware
 from app.bot.middlewares.notices import ModelNoticeMiddleware
 from app.bot.middlewares.owner_only import OwnerOnlyMiddleware
+from app.bot.middlewares.voice import VoiceMiddleware
 from app.config import Settings, get_settings
 from app.db.session import create_engine, create_sessionmaker, run_migrations
 from app.llm.providers import ProviderChain
 from app.scheduler.setup import create_scheduler
 from app.services.settings import SettingsService
+from app.stt.chain import SpeechChain
 
 
 class _InterceptHandler(logging.Handler):
@@ -46,14 +48,17 @@ def setup_logging(level: str) -> None:
     logging.basicConfig(handlers=[_InterceptHandler()], level=logging.INFO, force=True)
 
 
-def build_dispatcher(config: Settings, sessionmaker, llm: ProviderChain) -> Dispatcher:
+def build_dispatcher(
+    config: Settings, sessionmaker, llm: ProviderChain, stt: SpeechChain | None = None
+) -> Dispatcher:
     agent = Agent(llm, build_registry())
-    dp = Dispatcher(config=config, llm=llm, agent=agent)
+    dp = Dispatcher(config=config, llm=llm, agent=agent, stt=stt)
     dp.update.outer_middleware(OwnerOnlyMiddleware(config.owner_id))
     dp.update.outer_middleware(LoggingMiddleware())
+    dp.message.outer_middleware(VoiceMiddleware())  # voice → text first, then like typed text
     dp.message.outer_middleware(MenuResetMiddleware())
     dp.update.middleware(DbSessionMiddleware(sessionmaker, config, llm))
-    dp.update.middleware(ModelNoticeMiddleware(llm, config))
+    dp.update.middleware(ModelNoticeMiddleware(config, llm, stt))
     dp.include_router(build_router())
     return dp
 
@@ -70,6 +75,7 @@ async def run_bot(config: Settings) -> None:
     engine = create_engine(config.database_url)
     sessionmaker = create_sessionmaker(engine)
     llm = ProviderChain.from_settings(config)
+    stt = SpeechChain.from_settings(config)
 
     session = AiohttpSession(proxy=config.telegram_proxy) if config.telegram_proxy else None
     bot = Bot(
@@ -78,7 +84,7 @@ async def run_bot(config: Settings) -> None:
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     await apply_saved_model(llm, sessionmaker, config)
-    dp = build_dispatcher(config, sessionmaker, llm)
+    dp = build_dispatcher(config, sessionmaker, llm, stt)
     scheduler = create_scheduler(bot, sessionmaker, config)
 
     try:
@@ -87,11 +93,12 @@ async def run_bot(config: Settings) -> None:
         )
         me = await bot.get_me()
         logger.info(
-            "Vira v{} started as @{} (profile={}, models: {})",
+            "Vira v{} started as @{} (profile={}, models: {}; voice: {})",
             __version__,
             me.username,
             config.profile,
             llm.model,
+            stt.model if config.stt_enabled else "off",
         )
         await llm.check()  # informational only: the model may still be downloading
         scheduler.start()
@@ -101,6 +108,7 @@ async def run_bot(config: Settings) -> None:
             scheduler.shutdown(wait=False)
         await bot.session.close()
         await llm.close()
+        await stt.close()
         await engine.dispose()
 
 

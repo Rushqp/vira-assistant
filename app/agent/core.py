@@ -20,6 +20,9 @@ from app.agent.tools import Card, Clarification, ToolContext, ToolRegistry
 from app.llm.client import ChatMessage, LLMError
 
 MAX_ROUNDS = 4
+VOICE_NOTE = (
+    "[Voice message: this is its automatic transcript, which may contain recognition errors]"
+)
 
 # "I've saved it / it was cancelled / ثبت شد / کنسل کردم ..." said without calling any tool.
 _DONE_EN = (
@@ -71,11 +74,13 @@ class Agent:
         text: str,
         on_text: Callable[[str], Any] | None = None,
         hint: str = "",
+        voice: bool = False,
     ) -> AgentResult:
         categories = [c.name for c in await ctx.expenses.categories()]
         system = build_system_prompt(categories, ctx.config.day_times)
         context = build_context(ctx.now, ctx.calendar, ctx.currency)
-        user = f"{context}\n{hint}\n\n{text}" if hint else f"{context}\n\n{text}"
+        notes = "\n".join(filter(None, [hint, VOICE_NOTE if voice else ""]))
+        user = f"{context}\n{notes}\n\n{text}" if notes else f"{context}\n\n{text}"
         messages: list[ChatMessage] = [
             {"role": "system", "content": system},
             *history,

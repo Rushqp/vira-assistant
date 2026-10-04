@@ -33,11 +33,13 @@ class Currency(StrEnum):
 # Default local models per hardware profile: (LLM model, Whisper model).
 # lite: chat only (no tool calling) · standard / full: local agent with tool calling.
 # Remote uses external APIs only; a custom endpoint needs LLM_MODEL.
+# Local Whisper is only the backup of the free speech APIs: none on lite / remote (too little
+# RAM, and tiny models hardly understand Persian), `small` on standard, `large-v3-turbo` on full.
 PROFILE_DEFAULTS: dict[Profile, tuple[str, str]] = {
-    Profile.LITE: ("gemma3:1b", "tiny"),
-    Profile.STANDARD: ("qwen3:4b", "base"),
-    Profile.FULL: ("qwen3:8b", "small"),
-    Profile.REMOTE: ("", "base"),
+    Profile.LITE: ("gemma3:1b", ""),
+    Profile.STANDARD: ("qwen3:4b", "small"),
+    Profile.FULL: ("qwen3:8b", "large-v3-turbo"),
+    Profile.REMOTE: ("", ""),
 }
 
 # Default models of the free API providers (override with GEMINI_MODEL, GROQ_MODEL, …).
@@ -79,7 +81,9 @@ class Settings(BaseSettings):
     chat_memory: int = Field(default=10, ge=0, le=50)  # previous messages sent as context
     chat_keep: int = Field(default=20, ge=1, le=200)  # previous chats kept in 🗂 Chats
     stt_enabled: bool = True
-    stt_model: str | None = None
+    stt_providers: str = "groq,gemini,local"  # order of the speech-to-text engines
+    groq_stt_model: str = "whisper-large-v3"
+    stt_model: str | None = None  # local Whisper model (empty = profile default)
 
     # Reminders: default clock times for words like "morning" / «صبح»
     morning_time: time = time(9, 0)

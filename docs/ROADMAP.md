@@ -94,8 +94,8 @@ the model never does date or currency arithmetic; reminders never depend on a mo
 | Local LLM | **Ollama** | CPU model inference; OpenAI-compatible API |
 | LLM client | `openai` SDK (custom `base_url`) | One client per provider (Gemini, Groq, GitHub Models, Ollama, OpenRouter …) + failover chain |
 | Agent | OpenAI-style tool calling + Pydantic validation | Typed tools; arguments re-checked by deterministic parsers |
-| Speech-to-text | **faster-whisper** (CTranslate2, int8) | Persian + English voice transcription on CPU |
-| Audio conversion | ffmpeg | Telegram OGG/Opus → WAV |
+| Speech-to-text | Free **Groq Whisper large-v3** → **Gemini** (audio input) → local **faster-whisper** (CTranslate2, int8) | Persian + English voice transcription, with failover like the AI models (v0.6) |
+| Audio conversion | PyAV (bundled FFmpeg, comes with faster-whisper) | Telegram OGG/Opus → WAV for Gemini; no system packages |
 | Scheduling | **APScheduler** (in-memory) | A 20-second job sends due alerts stored in SQLite (the DB is the source of truth, so nothing is lost on restart) + daily jobs |
 | Database | **SQLite** + SQLAlchemy 2 (async, aiosqlite) | No extra service; single file on a volume |
 | Migrations | Alembic | Schema changes across versions without data loss |
@@ -116,15 +116,17 @@ Selected with one variable: `PROFILE=lite | standard | full | remote` (or overri
 `STT_MODEL`). With a free API key the agent runs on the API in every profile; the local model is
 the fallback (or the brain, without keys).
 
-| Profile | Suggested RAM | Local model | Whisper model | Without an API key |
+| Profile | Suggested RAM | Local model | Local Whisper (voice backup) | Without an API key |
 |---|---|---|---|---|
-| `lite` | 2 GB | `gemma3:1b` (chat only) | `tiny` | rule-based understanding + local chat |
-| `standard` | 4 GB | `qwen3:4b` (agent, tools) | `base` | local agent (slow on CPU) |
-| `full` | 8 GB+ | `qwen3:8b` (agent, tools) | `small` | local agent |
+| `lite` | 2 GB | `gemma3:1b` (chat only) | none | rule-based understanding + local chat, no voice |
+| `standard` | 4 GB | `qwen3:4b` (agent, tools) | `small` | local agent (slow on CPU) |
+| `full` | 8 GB+ | `qwen3:8b` (agent, tools) | `large-v3-turbo` | local agent |
 | `remote` | — | — | — | needs an API key or a custom `LLM_MODEL` |
 
 - Models are pulled automatically on first start (`ollama pull` in an init service).
-- STT can be disabled entirely with `STT_ENABLED=false`.
+- STT can be disabled entirely with `STT_ENABLED=false`. Voice uses the free APIs first (Groq
+  Whisper, then Gemini); local Whisper is only the backup and downloads when first needed
+  (decided in v0.6: tiny / base models hardly understand Persian).
 - `scripts/eval_agent.py` benchmarks accuracy and latency of every configured model on real
   Persian/English cases; run it on the target server before changing defaults.
 
@@ -172,9 +174,13 @@ the fallback (or the brain, without keys).
 - Quick notes with tags and search
 - Daily to-do list with checkboxes
 
-### 6.6 Voice (STT)
-- Voice → text → same pipeline as text messages
-- Recognized text is shown back to the user for transparency
+### 6.6 Voice (STT) — v0.6
+- Voice messages and audio files → text → same pipeline as text messages (also as the answer
+  to a form's question); round videos are not transcribed
+- Recognized text is shown back to the user for transparency («🎙 …»)
+- Engines with failover and switch notices: Groq Whisper large-v3 → Gemini → local
+  faster-whisper; up to 10 minutes per recording
+- Replies stay text (voice replies were not wanted for now)
 
 ### 6.7 Settings
 - **Calendar: Gregorian / Jalali** (affects all dates in messages, reports and exports)
@@ -279,13 +285,13 @@ vira-assistant/
 │   │   ├── context.py          # per-message dates table (Gregorian = Jalali)
 │   │   └── prompt.py           # system prompt
 │   ├── bot/
-│   │   ├── handlers/           # assistant (free text → agent), start, menu, chat, chats, reminders, expenses, reports, categories, settings, ai_models, fallback (+ notes, voice later)
+│   │   ├── handlers/           # assistant (free text → agent), start, menu, chat, chats, reminders, expenses, reports, categories, settings, ai_models, fallback (+ notes later)
 │   │   ├── agent_ui.py         # result cards with Undo / Edit, model switch notices
 │   │   ├── keyboards/          # reply.py, inline.py
 │   │   ├── views.py            # message rendering (reminder cards, notifications, briefing, reports)
 │   │   ├── streaming.py        # streamed LLM answers via message edits
 │   │   ├── states.py           # FSM states
-│   │   └── middlewares/        # owner_only.py, logging.py, db.py, menu_reset.py, notices.py
+│   │   └── middlewares/        # owner_only.py, logging.py, db.py, voice.py (voice → text before routing), menu_reset.py, notices.py
 │   ├── core/
 │   │   ├── normalizer.py       # fa/en digits, number words, ZWNJ
 │   │   ├── textmatch.py        # fuzzy references to stored items
@@ -293,10 +299,11 @@ vira-assistant/
 │   ├── llm/
 │   │   ├── client.py           # one OpenAI-compatible endpoint (tools, streaming)
 │   │   ├── models.py           # catalog of free models (friendly names)
-│   │   ├── providers.py        # failover chain of free APIs + local model, chosen model, notices
+│   │   ├── providers.py        # failover chain of free APIs + local model, chosen model
+│   │   ├── failover.py         # cooldowns and switch notices (AI models and speech engines)
 │   │   ├── prompts/            # helper prompts (bilingual)
 │   │   └── schemas.py          # JSON schemas for structured output
-│   ├── stt/whisper.py          # v0.6
+│   ├── stt/                    # engines.py (Groq Whisper, Gemini, local faster-whisper), chain.py
 │   ├── services/               # reminders, reminder_ai, expenses, expense_ai, reports, export, notes, todos, chat, tools
 │   ├── scheduler/              # jobs.py (alerts, morning briefing, nightly report), setup.py
 │   ├── db/                     # models.py, session.py
@@ -333,7 +340,8 @@ LLM_BASE_URL=http://ollama:11434/v1
 LLM_MODEL=                  # empty = profile default
 LLM_API_KEY=ollama
 STT_ENABLED=true
-STT_MODEL=                  # empty = profile default
+STT_PROVIDERS=groq,gemini,local
+STT_MODEL=                  # local Whisper; empty = profile default
 CURRENCY=toman
 DAILY_REPORT_TIME=22:00
 TELEGRAM_PROXY=             # optional: socks5://host:port
@@ -370,7 +378,7 @@ TELEGRAM_PROXY=             # optional: socks5://host:port
 | **v0.3.0** | Normalizer + fa/en date/time parser (both calendars), reminders (create/list/delete/repeat/snooze), scheduler, morning briefing (reminders), previous chats | "Doctor tomorrow at 2, remind me in the morning" is saved and delivered correctly |
 | **v0.4.0** | **AI agent with tools + free provider chain** (model switching in the bot, switch notices), amount parser, expenses (multi-item), categories, daily/monthly reports | The groceries + fuel example creates two correct records |
 | **v0.5.0** | Excel files from the chat (expenses, reminders, any table), nightly report, briefing and report times in Settings | Current month's Excel file is received |
-| **v0.6.0** | Voice → text (faster-whisper) | Persian and English voice is processed like text |
+| **v0.6.0** | Voice messages and audio files → text (Groq Whisper / Gemini, local faster-whisper backup) | Persian and English voice is processed like text |
 | **v0.7.0** | Notes, to-dos, settings, backup | All menu buttons functional |
 | **v1.0.0** | Full test coverage, memory optimization, README, INSTALL guide, screenshots | Clean-server install using only the README |
 

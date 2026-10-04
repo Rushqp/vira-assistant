@@ -101,7 +101,7 @@ def _retry_after(exc: openai.APIStatusError) -> float | None:
         return None
 
 
-def _translate(exc: Exception, model: str) -> LLMError:
+def translate_error(exc: Exception, model: str) -> LLMError:
     if isinstance(exc, openai.APIConnectionError):  # includes timeouts
         return LLMError("unreachable", str(exc))
     if isinstance(exc, openai.NotFoundError):
@@ -191,7 +191,7 @@ class LLMClient:
         except LLMError:
             raise
         except openai.OpenAIError as exc:
-            raise _translate(exc, self.model) from exc
+            raise translate_error(exc, self.model) from exc
         if not response.content.strip() and not response.tool_calls:
             raise LLMError("failed", "empty response")
         response.provider = self.name
@@ -260,7 +260,7 @@ class LLMClient:
                 if piece and (visible := thinking.feed(piece)):
                     yield visible
         except openai.OpenAIError as exc:
-            raise _translate(exc, self.model) from exc
+            raise translate_error(exc, self.model) from exc
 
     async def chat(self, messages: list[ChatMessage]) -> str:
         return "".join([piece async for piece in self.stream_chat(messages)])
@@ -284,7 +284,7 @@ class LLMClient:
                 **self._extra(),
             )
         except openai.OpenAIError as exc:
-            raise _translate(exc, self.model) from exc
+            raise translate_error(exc, self.model) from exc
         content = (response.choices[0].message.content or "") if response.choices else ""
         match = re.search(r"\{.*\}", content, re.DOTALL)
         try:

@@ -1,4 +1,5 @@
-"""Test doubles shared across test modules: fake LLM and a fake Telegram Bot API session."""
+"""Test doubles shared across test modules: fake LLM, fake speech engine and a fake Telegram
+Bot API session."""
 
 import json
 from collections.abc import AsyncIterator
@@ -13,14 +14,28 @@ from aiogram.methods import (
     AnswerCallbackQuery,
     EditMessageReplyMarkup,
     EditMessageText,
+    GetFile,
     SendChatAction,
     SendDocument,
     SendMessage,
     TelegramMethod,
 )
-from aiogram.types import CallbackQuery, Chat, InlineKeyboardMarkup, Message, Update, User
+from aiogram.types import (
+    Audio,
+    CallbackQuery,
+    Chat,
+    Document,
+    File,
+    InlineKeyboardMarkup,
+    Message,
+    Update,
+    User,
+    Voice,
+)
 
 from app.llm.client import ChatMessage, LLMError, LLMResponse, ToolCall
+from app.llm.failover import Failover
+from app.stt.engines import Transcription
 
 OWNER_ID = 1001
 
@@ -90,6 +105,33 @@ class FakeLLM:
         return self.json_reply
 
 
+class FakeSTT:
+    """Stands in for `SpeechChain`: answers `text` (or raises `error`) and records the audio."""
+
+    def __init__(self, text: str = "", error: LLMError | None = None) -> None:
+        self.text = text
+        self.error = error
+        self.engines = ["fake"]
+        self.audio: list = []
+        self.failover = Failover(task="voice")
+
+    @property
+    def model(self) -> str:
+        return "Fake Whisper"
+
+    async def transcribe(self, audio) -> Transcription:
+        self.audio.append(audio)
+        if self.error:
+            raise self.error
+        return Transcription(self.text, "fa", "Fake Whisper")
+
+    def drain_notices(self):
+        return self.failover.drain()
+
+    async def close(self) -> None:
+        pass
+
+
 class RecordingSession(BaseSession):
     """Answers every Bot API call locally and records sent / edited texts."""
 
@@ -100,6 +142,7 @@ class RecordingSession(BaseSession):
         self.markup: InlineKeyboardMarkup | None = None  # last inline keyboard shown
         self.alerts: list[str] = []  # callback answers
         self.documents: list[tuple[str, bytes, str]] = []  # (file name, content, caption)
+        self.downloads: list[str] = []  # file ids the bot downloaded
 
     async def make_request(self, bot, method: TelegramMethod, timeout=None):  # noqa: ASYNC109
         if isinstance(method, SendMessage):
@@ -120,6 +163,9 @@ class RecordingSession(BaseSession):
             return True
         if isinstance(method, SendChatAction):
             return True
+        if isinstance(method, GetFile):
+            self.downloads.append(method.file_id)
+            return File(file_id=method.file_id, file_unique_id="u", file_path="voice/file.oga")
         if isinstance(method, SendDocument):
             document = method.document
             self.documents.append(
@@ -131,9 +177,8 @@ class RecordingSession(BaseSession):
     async def close(self) -> None:
         pass
 
-    async def stream_content(self, *args, **kwargs):  # pragma: no cover
-        raise NotImplementedError
-        yield b""
+    async def stream_content(self, *args, **kwargs):
+        yield b"fake-ogg-audio"
 
 
 _counter = iter(range(1, 10_000))
@@ -157,6 +202,8 @@ class Env:
     session: RecordingSession
     llm: FakeLLM
     db: object = None  # sessionmaker, for checking the database
+    feed: object = None  # feed(message): any Message (voice, audio …) through the dispatcher
+    stt: object = None
 
     def __iter__(self):
         return iter((self.send, self.session, self.llm))
@@ -171,7 +218,37 @@ class Env:
         raise AssertionError(f"no button with {text_part!r}")
 
 
-def make_env(config, sessionmaker, llm=None) -> Env:
+def voice_message(
+    duration: int = 3, kind: str = "voice", caption: str | None = None, size: int = 9000
+) -> Message:
+    """A voice message, an audio file ("audio") or an audio sent as a file ("document")."""
+    media: dict = {}
+    if kind == "voice":
+        media["voice"] = Voice(
+            file_id="voice-1", file_unique_id="v1", duration=duration, mime_type="audio/ogg",
+            file_size=size,
+        )  # fmt: skip
+    elif kind == "audio":
+        media["audio"] = Audio(
+            file_id="audio-1", file_unique_id="a1", duration=duration, mime_type="audio/mpeg",
+            file_name="memo.mp3", file_size=size,
+        )  # fmt: skip
+    else:
+        media["document"] = Document(
+            file_id="doc-1", file_unique_id="d1", mime_type="audio/mp4", file_name="memo.m4a",
+            file_size=size,
+        )  # fmt: skip
+    return Message(
+        message_id=next(_counter),
+        date=datetime.now(),
+        chat=Chat(id=OWNER_ID, type="private"),
+        from_user=User(id=OWNER_ID, is_bot=False, first_name="T"),
+        caption=caption,
+        **media,
+    )
+
+
+def make_env(config, sessionmaker, llm=None, stt=None) -> Env:
     """A dispatcher wired to a recording fake Telegram session and a fake LLM (or `llm`)."""
     from app.main import build_dispatcher
 
@@ -180,7 +257,10 @@ def make_env(config, sessionmaker, llm=None) -> Env:
         "123456:TEST", session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     llm = llm or FakeLLM("Hi! How can I help?")
-    dp = build_dispatcher(config, sessionmaker, llm)  # type: ignore[arg-type]
+    dp = build_dispatcher(config, sessionmaker, llm, stt)  # type: ignore[arg-type]
+
+    async def feed(message: Message) -> None:
+        await dp.feed_update(bot, Update(update_id=next(_counter), message=message))
 
     async def send(text: str, user_id: int = OWNER_ID) -> None:
         update = Update(update_id=next(_counter), message=_message(text, user_id=user_id))
@@ -196,4 +276,4 @@ def make_env(config, sessionmaker, llm=None) -> Env:
         )
         await dp.feed_update(bot, Update(update_id=next(_counter), callback_query=query))
 
-    return Env(send, press, session, llm, sessionmaker)
+    return Env(send, press, session, llm, sessionmaker, feed, stt)
