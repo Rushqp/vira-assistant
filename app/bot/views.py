@@ -1,7 +1,8 @@
 """Message rendering shared by handlers and scheduled jobs.
 
 Reminder cards, notifications, the morning briefing, expense cards, reports and the nightly
-report. All functions return Telegram HTML; user text (subjects, descriptions) is escaped here.
+report, to-do lists and notes. All functions return Telegram HTML; user text (subjects,
+descriptions, notes) is escaped here.
 """
 
 import html
@@ -11,10 +12,12 @@ from zoneinfo import ZoneInfo
 from app import texts
 from app.config import Calendar
 from app.core.parsers.datetime_parser import DayTimes, RepeatRule
-from app.db.models import Category, Expense, Reminder
+from app.db.models import Category, Expense, Note, Reminder, Todo
 from app.services.expenses import ExpenseDraft
+from app.services.notes import tag_list
 from app.services.reminders import ReminderDraft, from_utc
 from app.services.reports import Report, month_name
+from app.services.todos import DayList
 from app.utils.calendar import JALALI_MONTHS, format_date
 from app.utils.formatting import bar, format_money, format_quantity
 
@@ -133,8 +136,14 @@ def notification(
     return text + (texts.NOTIFY_LATE if late else "")
 
 
-def briefing(reminders: list[Reminder], now: datetime, tz: ZoneInfo, calendar: Calendar) -> str:
-    """Today's reminders, important ones first."""
+def briefing(
+    reminders: list[Reminder],
+    now: datetime,
+    tz: ZoneInfo,
+    calendar: Calendar,
+    todos: list[Todo] | None = None,
+) -> str:
+    """Today's reminders, important ones first, and today's open to-dos."""
 
     def item(r: Reminder) -> str:
         clock = texts.REMINDER_ALL_DAY if r.all_day else f"{from_utc(r.event_at, tz):%H:%M}"
@@ -146,7 +155,15 @@ def briefing(reminders: list[Reminder], now: datetime, tz: ZoneInfo, calendar: C
     if important:
         lines += [texts.BRIEFING_IMPORTANT, *map(item, important), ""]
     if others:
-        lines += [texts.BRIEFING_TODAY, *map(item, others)]
+        lines += [texts.BRIEFING_TODAY, *map(item, others), ""]
+    if todos:
+        lines += [texts.BRIEFING_TODOS]
+        lines += [
+            texts.BRIEFING_TODO.format(
+                text=html.escape(t.text), origin=todo_origin(t, now.date(), calendar)
+            )
+            for t in todos
+        ]
     return "\n".join(lines).strip()
 
 
@@ -294,8 +311,9 @@ def nightly_report(
     tz: ZoneInfo,
     calendar: Calendar,
     currency: str,
+    todos: DayList | None = None,
 ) -> str:
-    """Today's expenses, this month so far and tomorrow's reminders (important first)."""
+    """Today's expenses, this month so far, today's to-dos and tomorrow's reminders."""
     lines = [texts.NIGHTLY_TITLE.format(today=format_date(day.start, calendar)), ""]
     if day.expenses:
         lines.append(
@@ -315,6 +333,15 @@ def nightly_report(
                 average=format_money(average, currency),
             ),
         ]
+    if todos and todos.items:
+        done, total = len(todos.done), len(todos.items)
+        if done == total:
+            lines += ["", texts.NIGHTLY_TODOS_DONE.format(total=total)]
+        else:
+            names = ", ".join(html.escape(t.text) for t in todos.open[:5])
+            if len(todos.open) > 5:
+                names += "…"
+            lines += ["", texts.NIGHTLY_TODOS_OPEN.format(done=done, total=total, items=names)]
     lines.append("")
     if not tomorrow:
         lines.append(texts.NIGHTLY_TOMORROW_EMPTY)
@@ -333,3 +360,102 @@ def nightly_report(
             )
         )
     return "\n".join(lines)
+
+
+# --- To-dos ---
+
+
+def todo_origin(todo: Todo, day: date, calendar: Calendar) -> str:
+    """` (Sat 12 Mehr)` for a task carried over from an earlier day."""
+    if todo.due_date >= day:
+        return ""
+    return texts.TODO_ORIGIN.format(day=format_date(todo.due_date, calendar))
+
+
+def todo_line(todo: Todo, day: date, calendar: Calendar) -> str:
+    template = texts.TODO_DONE if todo.done else texts.TODO_OPEN
+    return template.format(text=html.escape(todo.text), origin=todo_origin(todo, day, calendar))
+
+
+def todo_list(day_list: DayList, calendar: Calendar) -> str:
+    """A day's tasks: unfinished ones from earlier days first, then the day's own."""
+    day = day_list.day
+    lines = [texts.TODOS_TITLE.format(day=format_date(day, calendar))]
+    if not day_list.items:
+        return "\n".join([*lines, "", texts.TODOS_EMPTY])
+    if day_list.carried:
+        lines += ["", texts.TODOS_CARRIED, *(todo_line(t, day, calendar) for t in day_list.carried)]
+        if day_list.planned:
+            lines += ["", texts.TODOS_PLANNED]
+    else:
+        lines.append("")
+    lines += [todo_line(t, day, calendar) for t in day_list.planned]
+    done, total = len(day_list.done), len(day_list.items)
+    lines += ["", texts.TODOS_PROGRESS.format(done=done, total=total)]
+    return "\n".join(lines)
+
+
+# --- Notes ---
+
+NOTE_BODY_MAX = 3000  # characters of a note shown in one message
+
+
+def _tags(note: Note) -> str:
+    return " ".join(f"#{t}" for t in tag_list(note))
+
+
+def notes_list(
+    notes: list[Note],
+    total: int,
+    tz: ZoneInfo,
+    calendar: Calendar,
+    query: str | None = None,
+    first: int = 1,
+) -> str:
+    title = (
+        texts.NOTES_FOUND.format(query=html.escape(query))
+        if query
+        else texts.NOTES_TITLE.format(count=total)
+    )
+    if not notes:
+        return f"{title}\n\n{texts.NOTES_EMPTY}"
+    lines = [title, ""]
+    for n, note in enumerate(notes, first):
+        tags = _tags(note)
+        lines.append(
+            texts.NOTES_ITEM.format(
+                n=n,
+                pin=texts.NOTE_PIN if note.pinned else "",
+                title=html.escape(note.title),
+                tags=f" {html.escape(tags)}" if tags else "",
+                date=format_date(from_utc(note.created_at, tz).date(), calendar, weekday=False),
+            )
+        )
+    if not query:
+        lines += ["", texts.NOTES_SEARCH_HINT]
+    return "\n".join(lines)
+
+
+def note_card(note: Note, tz: ZoneInfo, calendar: Calendar, heading: str = "") -> str:
+    """A note in full (long texts are cut to one message), with its summary and tags."""
+    tags = _tags(note)
+    meta = texts.NOTE_META.format(
+        tags=f"{html.escape(tags)}\n" if tags else "",
+        date=format_date(from_utc(note.created_at, tz).date(), calendar),
+    )
+    if note.source == "voice":
+        meta += texts.NOTE_VOICE
+    body = note.text[:NOTE_BODY_MAX]
+    more = (
+        texts.NOTE_MORE.format(count=len(note.text) - NOTE_BODY_MAX)
+        if note.text[NOTE_BODY_MAX:]
+        else ""
+    )
+    summary = texts.NOTE_SUMMARY.format(summary=html.escape(note.summary)) if note.summary else ""
+    card = texts.NOTE_CARD.format(
+        title=html.escape(note.title),
+        pin=" 📌" if note.pinned else "",
+        meta=meta,
+        body=summary + html.escape(body) + more,
+    )
+    return f"{heading}\n\n{card}" if heading else card

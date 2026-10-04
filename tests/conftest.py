@@ -3,16 +3,18 @@ import pytest
 from app.bot.handlers import (
     ai_models,
     assistant,
+    backup,
     categories,
     chat,
     chats,
     expenses,
     fallback,
-    menu,
+    notes,
     reminders,
     reports,
     settings,
     start,
+    todos,
 )
 from app.config import Settings
 from app.db.session import create_engine, create_sessionmaker, run_migrations
@@ -47,7 +49,9 @@ def detach_routers():
         start,
         settings,
         categories,
-        menu,
+        notes,
+        todos,
+        backup,
         chats,
         reminders,
         reports,

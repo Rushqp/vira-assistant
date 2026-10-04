@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -42,6 +44,11 @@ def settings_menu(current_calendar: Calendar) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text=texts.BTN_AI_MODEL, callback_data=SettingsCb(action="ai").pack()
                 ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_BACKUP, callback_data=BackupCb(action="open").pack()
+                )
             ],
         ]
     )
@@ -565,3 +572,166 @@ def ai_models_menu(labels: list[str], selected: int | None) -> InlineKeyboardMar
     ]
     rows += [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# --- ✅ To-dos ---
+
+
+class TodoCb(CallbackData, prefix="todo"):
+    action: str  # toggle | day | add
+    tid: int = 0
+    day: str = ""  # ISO date of the list shown
+
+
+def todo_list(day: date, today: date, items: list[tuple[int, str, bool]]) -> InlineKeyboardMarkup:
+    """A ☐ / ☑ button per task (tap to tick), the days around it and ➕ Add."""
+    shown = day.isoformat()
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"{'☑' if done else '☐'} {text[:48]}",
+                callback_data=TodoCb(action="toggle", tid=tid, day=shown).pack(),
+            )
+        ]
+        for tid, text, done in items
+    ]
+    nav = [
+        InlineKeyboardButton(
+            text=texts.BTN_PREV_DAY,
+            callback_data=TodoCb(action="day", day=(day - timedelta(days=1)).isoformat()).pack(),
+        )
+    ]
+    if day != today:
+        nav.append(
+            InlineKeyboardButton(
+                text=texts.BTN_TODAY,
+                callback_data=TodoCb(action="day", day=today.isoformat()).pack(),
+            )
+        )
+    nav.append(
+        InlineKeyboardButton(
+            text=texts.BTN_NEXT_DAY,
+            callback_data=TodoCb(action="day", day=(day + timedelta(days=1)).isoformat()).pack(),
+        )
+    )
+    rows.append(nav)
+    if day >= today:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_TODO_ADD, callback_data=TodoCb(action="add", day=shown).pack()
+                )
+            ]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+# --- 📝 Notes ---
+
+
+class NoteCb(CallbackData, prefix="note"):
+    action: str  # page | open | pin | edit | delete | confirm_delete
+    nid: int = 0
+    page: int = 0
+
+
+def notes_list(items: list[tuple[int, str]], page: int, pages: int) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=label[:56], callback_data=NoteCb(action="open", nid=nid, page=page).pack()
+            )
+        ]
+        for nid, label in items
+    ]
+    nav = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text=texts.BTN_PREV_DAY, callback_data=NoteCb(action="page", page=page - 1).pack()
+            )
+        )
+    if page + 1 < pages:
+        nav.append(
+            InlineKeyboardButton(
+                text=texts.BTN_NEXT_DAY, callback_data=NoteCb(action="page", page=page + 1).pack()
+            )
+        )
+    if nav:
+        rows.append(nav)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def note_detail(nid: int, pinned: bool, page: int) -> InlineKeyboardMarkup:
+    def button(text: str, action: str) -> InlineKeyboardButton:
+        return InlineKeyboardButton(
+            text=text, callback_data=NoteCb(action=action, nid=nid, page=page).pack()
+        )
+
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                button(texts.BTN_NOTE_UNPIN if pinned else texts.BTN_NOTE_PIN, "pin"),
+                button(texts.BTN_EDIT, "edit"),
+                button(texts.BTN_DELETE, "delete"),
+            ],
+            [button(texts.BTN_BACK, "page")],
+        ]
+    )
+
+
+def note_delete_confirm(nid: int, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_YES_DELETE,
+                    callback_data=NoteCb(action="confirm_delete", nid=nid, page=page).pack(),
+                ),
+                InlineKeyboardButton(
+                    text=texts.BTN_CANCEL,
+                    callback_data=NoteCb(action="open", nid=nid, page=page).pack(),
+                ),
+            ]
+        ]
+    )
+
+
+# --- 💾 Backup ---
+
+
+class BackupCb(CallbackData, prefix="backup"):
+    action: str  # open | now | weekly | restore | cancel
+
+
+def backup_menu(weekly: bool) -> InlineKeyboardMarkup:
+    def button(text: str, action: str) -> InlineKeyboardButton:
+        return InlineKeyboardButton(text=text, callback_data=BackupCb(action=action).pack())
+
+    toggle = texts.BTN_BACKUP_WEEKLY_OFF if weekly else texts.BTN_BACKUP_WEEKLY_ON
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [button(texts.BTN_BACKUP_NOW, "now")],
+            [button(toggle, "weekly")],
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_BACK, callback_data=SettingsCb(action="show").pack()
+                )
+            ],
+        ]
+    )
+
+
+def restore_confirm() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_RESTORE, callback_data=BackupCb(action="restore").pack()
+                ),
+                InlineKeyboardButton(
+                    text=texts.BTN_CANCEL, callback_data=BackupCb(action="cancel").pack()
+                ),
+            ]
+        ]
+    )

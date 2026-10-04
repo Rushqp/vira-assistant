@@ -170,9 +170,13 @@ the fallback (or the brain, without keys).
 - Automatic nightly report at a configurable time (today's expenses + tomorrow's reminders) — v0.5
 - Optional morning briefing: today's tasks and reminders (reminders part done in v0.3)
 
-### 6.5 Notes & To-Dos
-- Quick notes with tags and search
-- Daily to-do list with checkboxes
+### 6.5 Notes & To-Dos — v0.7
+- Quick notes with automatic tags and search; a long voice message is kept word for word
+  with a title and a short summary; pin, edit, delete
+- Daily to-do list with checkboxes; unfinished tasks stay on today's list (with their day)
+  until done; also in the morning briefing and the nightly report
+- A task without a time and without "remind me" is a to-do, otherwise a reminder (decided
+  in v0.7)
 
 ### 6.6 Voice (STT) — v0.6
 - Voice messages and audio files → text → same pipeline as text messages (also as the answer
@@ -186,7 +190,8 @@ the fallback (or the brain, without keys).
 - **Calendar: Gregorian / Jalali** (affects all dates in messages, reports and exports)
 - Nightly report and morning briefing: on/off and time (v0.5)
 - Active model (read-only display), category management
-- Backup: send the database file to the owner
+- Backup: send the database file to the owner (`/backup`, ⚙️ Settings → 💾 Backup, every
+  Friday night); sending a backup file back restores it after a confirmation (v0.7)
 
 ---
 
@@ -209,7 +214,7 @@ the fallback (or the brain, without keys).
 - Excel files have no button (removed in v0.5): they are asked for in the chat.
 - The user can send **free text or voice (Persian or English) at any time** without pressing a button.
 - Per-item actions use **Inline Keyboards** under each message.
-- Commands: `/start` `/help` `/menu` `/new` `/chats` `/cancel` `/backup`
+- Commands: `/start` `/help` `/menu` `/new` `/chats` `/model` `/cancel` `/backup`
 - All UI strings live in one file (`app/texts.py`) so wording can be changed in one place.
 
 ---
@@ -232,8 +237,9 @@ message ─► (voice? → STT) ─► instant tools (calculator, today's date)
 
 **Tools:** `add_expenses` · `list_expenses` · `update_expense` · `delete_expenses` · `get_report` ·
 `create_reminder` · `list_reminders` · `update_reminder` · `cancel_reminders` · `convert_date` ·
-`calculate` · `update_settings` · `export_expenses` · `export_reminders` · `make_spreadsheet`
-(notes and to-dos become tools in later versions)
+`calculate` · `update_settings` · `export_expenses` · `export_reminders` · `make_spreadsheet` ·
+`add_todos` · `list_todos` · `update_todos` · `delete_todos` · `save_note` · `find_notes` ·
+`update_note` · `delete_notes`
 
 ### Input normalization (Persian + English)
 - Persian/Arabic digits → ASCII; `ي/ك` → `ی/ک`; zero-width non-joiner handling
@@ -260,8 +266,8 @@ message ─► (voice? → STT) ─► instant tools (calculator, today's date)
 | `expenses` | id, amount (whole CURRENCY units), category_id, description, quantity, unit, spent_at, raw_text, created_at |
 | `categories` | id, name, emoji, is_default, position |
 | `category_keywords` | id, keyword (normalized description), category_id — learned from corrections |
-| `notes` | id, text, tags, created_at |
-| `todos` | id, text, due_date, done, created_at |
+| `notes` | id, title, text, summary, tags, pinned, source (text / voice), created_at, updated_at |
+| `todos` | id, text, due_date, done_at, created_at |
 | `chat_sessions` | id, title, started_at, updated_at, ended_at |
 | `chat_history` | id, session_id, role, content, created_at (capped; assistant lines carry `[done: …]` action notes for references) |
 | `agent_actions` | id, kind, payload (JSON), summary, created_at, undone_at — undo log of the agent |
@@ -379,7 +385,7 @@ TELEGRAM_PROXY=             # optional: socks5://host:port
 | **v0.4.0** | **AI agent with tools + free provider chain** (model switching in the bot, switch notices), amount parser, expenses (multi-item), categories, daily/monthly reports | The groceries + fuel example creates two correct records |
 | **v0.5.0** | Excel files from the chat (expenses, reminders, any table), nightly report, briefing and report times in Settings | Current month's Excel file is received |
 | **v0.6.0** | Voice messages and audio files → text (Groq Whisper / Gemini, local faster-whisper backup) | Persian and English voice is processed like text |
-| **v0.7.0** | Notes, to-dos, settings, backup | All menu buttons functional |
+| **v0.7.0** | Notes (tags, search, voice notes with a summary, pin), to-dos (daily, carried over), backup (weekly + restore) | All menu buttons functional |
 | **v1.0.0** | Full test coverage, memory optimization, README, INSTALL guide, screenshots | Clean-server install using only the README |
 
 ---

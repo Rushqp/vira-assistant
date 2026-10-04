@@ -136,6 +136,14 @@ Key decisions:
 | `cancel_reminders` | Cancel by ids or query | `ids?`, `query?` | ambiguous query → candidates |
 | `convert_date` | Jalali ↔ Gregorian, weekday | `date_text` | date parser / jdatetime |
 | `calculate` | Arithmetic | `expression` | safe AST evaluator |
+| `add_todos` | Tasks for a day (no time, no "remind me") | `items[]`, `date?` | date parser; past days refused |
+| `list_todos` | Show a day's list (carried tasks included) | `date?` | — |
+| `update_todos` | Tick / untick, rename, move to another day | `ids?`/`query?`, `done?`, `text?`, `date?` | ambiguous query → candidates |
+| `delete_todos` | Delete tasks | `ids?`, `query?` | ambiguous query → candidates |
+| `save_note` | Save a note (no `text` = the whole message, e.g. a long voice note) | `title`, `tags[]`, `text?`, `summary?`, `pinned?` | tags cleaned (no #, one word each, max 5) |
+| `find_notes` | Find notes by words or `#tag` (shown to the user) | `query?` | fuzzy match on title, tags, summary, text |
+| `update_note` | Replace / append text, title, tags, summary, pin | `id?`/`query?`, fields | ambiguous query → candidates |
+| `delete_notes` | Delete notes | `ids?`, `query?` | ambiguous query → candidates |
 | `update_settings` | Calendar, morning briefing, nightly report | `calendar?`, `morning_briefing?`, `morning_briefing_time?`, `nightly_report?`, `nightly_report_time?` | enum validation; time parser (a bare «۹» is 21:00 for the nightly report, which must be 12:00–23:59) |
 | `export_expenses` | Send an Excel file of expenses | `period?` / `month?` / `year?` / `from_date?` + `to_date?`, `categories?`, `query?`, `columns?`, `summaries?`, `chart?` | months by name or number in both calendars («مهر», "October", `1405-07`), dates via the date parser; unknown category → the list |
 | `export_reminders` | Send an Excel file of reminders | `period?` (upcoming …), `from_date?`, `to_date?`, `query?`, `important_only?`, `include_done?` | date parser |
@@ -220,6 +228,7 @@ defaults can be benchmarked on the real server.
 - Benchmark local defaults per profile with `scripts/eval_agent.py` on the real server.
 - Voice (v0.6) feeds transcripts into the same agent, with a note that the text comes from
   speech (recognition errors are possible); watch how models handle mis-heard words.
-- Notes / to-dos (v0.7) become new tools (and `export_*` gains them).
+- With 23 tools the schemas are ~3K tokens per call; if quotas tighten, send only the tools
+  relevant to a message (e.g. by a cheap first pass).
 - If quotas tighten: a small classifier to answer trivial chat locally and save API calls.
 - Proactive suggestions (e.g. budget warnings) once there is enough data.

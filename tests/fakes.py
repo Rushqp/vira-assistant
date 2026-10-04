@@ -143,6 +143,7 @@ class RecordingSession(BaseSession):
         self.alerts: list[str] = []  # callback answers
         self.documents: list[tuple[str, bytes, str]] = []  # (file name, content, caption)
         self.downloads: list[str] = []  # file ids the bot downloaded
+        self.files: dict[str, bytes] = {}  # file id → content the bot downloads
 
     async def make_request(self, bot, method: TelegramMethod, timeout=None):  # noqa: ASYNC109
         if isinstance(method, SendMessage):
@@ -165,7 +166,7 @@ class RecordingSession(BaseSession):
             return True
         if isinstance(method, GetFile):
             self.downloads.append(method.file_id)
-            return File(file_id=method.file_id, file_unique_id="u", file_path="voice/file.oga")
+            return File(file_id=method.file_id, file_unique_id="u", file_path=f"f/{method.file_id}")
         if isinstance(method, SendDocument):
             document = method.document
             self.documents.append(
@@ -177,8 +178,8 @@ class RecordingSession(BaseSession):
     async def close(self) -> None:
         pass
 
-    async def stream_content(self, *args, **kwargs):
-        yield b"fake-ogg-audio"
+    async def stream_content(self, url: str, *args, **kwargs):
+        yield self.files.get(url.rsplit("/", 1)[-1], b"fake-ogg-audio")
 
 
 _counter = iter(range(1, 10_000))

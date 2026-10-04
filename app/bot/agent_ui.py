@@ -6,7 +6,7 @@ Also renders the notices about AI model switches (`render_notice`, `send_notices
 
 import html
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot
@@ -17,11 +17,12 @@ from loguru import logger
 from app import texts
 from app.agent.tools import Card
 from app.bot import views
-from app.bot.keyboards.inline import action_buttons, alert_options
+from app.bot.keyboards.inline import action_buttons, alert_options, notes_list, todo_list
 from app.config import Calendar, Settings
 from app.db.models import Expense
 from app.llm.providers import Notice
 from app.services.expenses import ExpenseService
+from app.services.notes import NoteService
 from app.services.reminders import ReminderService, from_utc
 from app.services.settings import (
     KEY_BRIEFING,
@@ -31,7 +32,8 @@ from app.services.settings import (
     KEY_NIGHTLY_TIME,
     SettingsService,
 )
-from app.utils.calendar import format_date
+from app.services.todos import TodoService
+from app.utils.calendar import format_date, now_local
 from app.utils.formatting import format_money, format_quantity
 
 Rendered = tuple[str, InlineKeyboardMarkup | None]
@@ -44,6 +46,12 @@ class UiDeps:
     expenses: ExpenseService
     reminders: ReminderService
     settings: SettingsService
+    notes: NoteService | None = None  # created from the session when not given
+    todos: TodoService | None = None
+
+    def __post_init__(self) -> None:
+        self.notes = self.notes or NoteService(self.expenses.session)
+        self.todos = self.todos or TodoService(self.expenses.session)
 
     @property
     def currency(self) -> str:
@@ -152,7 +160,58 @@ async def render_card(card: Card, deps: UiDeps) -> Rendered | None:
                 elif key in _SETTING_LINES:
                     lines.append(_SETTING_LINES[key].format(value=value))
             return "\n".join(lines), action_buttons(aid, edit=False)
+        case "todos_added" | "todos_updated" | "todos_deleted" | "todos_list":
+            return await _render_todos(card, deps)
+        case "note_saved" | "note_updated" | "notes_deleted" | "notes_found":
+            return await _render_notes(card, deps)
     return None
+
+
+async def _render_todos(card: Card, deps: UiDeps) -> Rendered | None:
+    assert deps.todos is not None
+    aid = card.action_id or 0
+    today = now_local(deps.config.timezone).date()
+    if card.kind == "todos_deleted":
+        items = [html.escape(t) for t in card.data["items"]]
+        return _listed(texts.AGENT_TODOS_DELETED, items), action_buttons(aid, edit=False)
+    if card.kind == "todos_list":
+        day = date.fromisoformat(card.data["day"])
+        day_list = await deps.todos.day_list(day, today)
+        entries = [(t.id, t.text, t.done) for t in day_list.items]
+        return views.todo_list(day_list, deps.calendar), todo_list(day, today, entries)
+    todos = await deps.todos.by_ids(card.data["ids"])
+    if not todos:
+        return None
+    lines = [views.todo_line(t, today, deps.calendar) for t in todos]
+    if card.kind == "todos_added":
+        title = texts.AGENT_TODOS_ADDED.format(day=format_date(todos[0].due_date, deps.calendar))
+        return "\n".join([title, "", *lines]), action_buttons(aid)
+    for i, todo in enumerate(todos):  # updated: show the day of tasks not for today
+        if todo.due_date != today:
+            lines[i] += texts.TODO_ORIGIN.format(day=format_date(todo.due_date, deps.calendar))
+    return "\n".join([texts.AGENT_TODOS_UPDATED, "", *lines]), action_buttons(aid, edit=False)
+
+
+async def _render_notes(card: Card, deps: UiDeps) -> Rendered | None:
+    assert deps.notes is not None
+    aid = card.action_id or 0
+    tz = deps.config.timezone
+    if card.kind == "notes_deleted":
+        items = [html.escape(t) for t in card.data["items"]]
+        return _listed(texts.AGENT_NOTES_DELETED, items), action_buttons(aid, edit=False)
+    if card.kind == "notes_found":
+        from app.bot.handlers.notes import note_label  # avoid an import cycle
+
+        notes = await deps.notes.by_ids(card.data["ids"])
+        order = {nid: i for i, nid in enumerate(card.data["ids"])}  # best match first
+        notes.sort(key=lambda n: order[n.id])
+        text = views.notes_list(notes, len(notes), tz, deps.calendar, card.data["query"] or None)
+        return text, notes_list([(n.id, note_label(n)) for n in notes], 0, 1)
+    note = await deps.notes.get(card.data["id"])
+    if note is None:
+        return None
+    heading = texts.AGENT_NOTE_SAVED if card.kind == "note_saved" else texts.AGENT_NOTE_UPDATED
+    return views.note_card(note, tz, deps.calendar, heading), action_buttons(aid)
 
 
 _SETTING_LINES = {

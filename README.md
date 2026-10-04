@@ -7,7 +7,7 @@
 
 [English](#english) · [فارسی](#فارسی)
 
-![version](https://img.shields.io/badge/version-0.6.0-blue)
+![version](https://img.shields.io/badge/version-0.7.0-blue)
 ![python](https://img.shields.io/badge/python-3.12-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 [![CI](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml)
@@ -32,6 +32,8 @@ acts:
 - *«نه، ماست ۲۵۰ هزار بود»* → the expense is corrected
 - *«این ماه چقدر خرج کردم؟»* → a monthly report
 - *«اکسل خرج‌های خوراکی مهر رو بده»* → an Excel file with totals and charts
+- *«فردا باید نون بخرم و قبض برق رو بدم»* → two to-dos for tomorrow; *«نون رو خریدم»* → ticked
+- *«یادداشت کن رمز وای‌فای مهمون 12345678 هست»* → a note with a title and tags
 - 🎙 a voice message → Vira shows what it heard and does it, like a typed message
 - and ordinary questions, answered in your language
 
@@ -53,7 +55,7 @@ never depend on the AI. Design: [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md).
 | **v0.4.0** | **AI agent** (understands any phrasing, follow-ups, undo / edit), free AI models from 5 providers with failover, model switching in the bot and notices, expenses, 13 categories with learning, reports | ✅ Done |
 | **v0.5.0** | **Excel files from the chat** (expenses, reminders, any table), nightly report, briefing and report times in Settings | ✅ Done |
 | **v0.6.0** | **Voice messages and audio files** → text (free Groq Whisper / Gemini, local faster-whisper as backup), handled like typed text | ✅ Done |
-| v0.7.0 | Notes, to-dos, backup | |
+| **v0.7.0** | **To-dos** (daily list, unfinished ones carry over), **notes** (tags, search, voice notes with a summary, pin), **backup** (weekly + restore) — every menu button works | ✅ Done |
 | v1.0.0 | Full tests, optimization, install guide | |
 
 The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -88,6 +90,24 @@ The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 On the first start, the `ollama-init` container downloads the local model for your profile (the local
 fallback). Follow it with `docker compose logs -f ollama-init`. With `PROFILE=remote` and
 `COMPOSE_PROFILES=` (empty) no local model is used at all.
+
+### Updating
+
+On the server, in the project folder:
+
+```bash
+git pull                       # the latest released version (branch main)
+docker compose up -d --build   # rebuilds the image; the bot restarts with your data
+docker compose logs -f bot     # check that it started (Ctrl+C leaves the log)
+```
+
+- Your data stays in `./data` (database, downloaded voice models) and `./models` (Ollama): nothing
+  is lost, and database changes are applied automatically at startup.
+- New settings always have defaults; compare your `.env` with `.env.example` to use new features.
+- Before a big update you can send `/backup` to the bot to keep a copy of your data.
+- To try a version before its release: `git checkout dev && git pull`, then the same
+  `docker compose up -d --build`; `git checkout main && git pull` goes back to the released one.
+- Old images take disk space: `docker image prune -f` removes the unused ones.
 
 ### How Vira thinks
 
@@ -145,7 +165,18 @@ All of these have a free tier. Add any of the keys to `.env` (more keys = more b
   table: *«یه برنامه ورزشی هفتگی به صورت اکسل بده»*. Expense files have a sheet of every
   expense plus totals per category / day / week / month with charts, in the selected
   calendar. Without details you get this month.
-- **Morning briefing:** every day at 08:00, today's reminders, important ones (⭐) first.
+- ✅ **To-dos:** say what you need to do (*«فردا باید نون بخرم»*), or ✅ Today To-Dos → ➕ Add.
+  Without a time or «یادم بنداز» it is a to-do; with them, a reminder. Tick with a tap or say
+  *«نون رو خریدم»*. Unfinished to-dos stay on today's list with their original day; ◀️ ▶️ show
+  other days.
+- 📝 **Notes:** *«یادداشت کن …»*, or a long voice message, which is kept word for word with a
+  title and a short summary. Tags are added automatically; find notes by asking (*«یادداشت‌های
+  ماشین رو بیار»*) or with 📝 Notes, where you can 📌 pin, ✏️ edit and 🗑 delete them.
+- 💾 **Backup:** `/backup` or ⚙️ Settings → 💾 Backup sends all your data as one file, and a copy
+  comes every Friday night. To restore (e.g. on a new server), send the file back to the bot:
+  it asks for confirmation and sends the current data first.
+- **Morning briefing:** every day at 08:00, today's reminders, important ones (⭐) first, and
+  today's to-dos.
 - **Nightly report:** every day at 22:00, today's expenses (with a nudge when nothing was
   recorded), this month so far and tomorrow's reminders.
 - ⚙️ **Settings → ☀️ Morning briefing / 🌙 Nightly report:** on / off and the time (or just say
@@ -216,8 +247,8 @@ app/
 ├── texts.py           # Every user-facing string (edit wording here only)
 ├── agent/             # The brain: an AI agent with typed tools
 │   ├── core.py        #   the loop: model → tool calls → results → short answer
-│   ├── tools/         #   expenses, reminders, files (Excel), general (reports, dates,
-│   │                  #   settings); argument validation
+│   ├── tools/         #   expenses, reminders, to-dos, notes, files (Excel), general
+│   │                  #   (reports, dates, settings); argument validation
 │   ├── actions.py     #   undo log for everything the agent changed
 │   ├── context.py     #   per-message context: now + dates table (Gregorian = Jalali)
 │   └── prompt.py      #   the system prompt
@@ -229,8 +260,8 @@ app/
 │                      #   faster-whisper), chain.py (order, failover)
 ├── bot/               # Telegram layer, no business logic
 │   ├── handlers/      #   assistant (free text → agent), chats, settings, categories, ai_models
-│   │                  #   (🤖 AI model), reminders, expenses, reports (buttons + rule-based
-│   │                  #   fallback), menu, fallback
+│   │                  #   (🤖 AI model), backup, todos, notes, reminders, expenses, reports
+│   │                  #   (buttons + rule-based fallback), fallback
 │   ├── agent_ui.py    #   result cards with ↩️ Undo / ✏️ Edit, model switch notices
 │   ├── keyboards/     #   reply.py = main menu, inline.py = buttons under messages
 │   ├── middlewares/   #   owner_only, logging, db (session + services), voice (voice → text
@@ -243,8 +274,9 @@ app/
 │   ├── textmatch.py   #   fuzzy references («تایم دکتر» → the doctor reminder)
 │   └── parsers/       #   dates & times, reminder sentences, amounts, expense sentences
 ├── services/          # Business logic, independent of Telegram: reminders, expenses,
-│                      #   reports, export (Excel files), chat history, settings, calculator
-├── scheduler/         # due reminders, morning briefing and nightly report (APScheduler)
+│                      #   reports, export (Excel files), todos, notes, backup, chat history,
+│                      #   settings, calculator
+├── scheduler/         # due reminders, morning briefing, nightly report, weekly backup
 ├── db/                # models.py = tables, session.py = engine + migrations
 └── utils/             # Jalali / Gregorian formatting, Markdown → HTML, money
 scripts/eval_agent.py  # accuracy / latency of each configured model on real Persian cases
@@ -301,6 +333,8 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 - «نه، ماست ۲۵۰ هزار بود» ← هزینه اصلاح می‌شود
 - «این ماه چقدر خرج کردم؟» ← گزارش ماه
 - «اکسل خرج‌های خوراکی مهر رو بده» ← فایل اکسل با جمع‌ها و نمودار
+- «فردا باید نون بخرم و قبض برق رو بدم» ← دو کار برای فردا؛ «نون رو خریدم» ← تیک می‌خورد
+- «یادداشت کن رمز وای‌فای مهمون 12345678 هست» ← یادداشت با عنوان و برچسب
 - 🎙 پیام صوتی ← ویرا متنی را که شنیده نشان می‌دهد و مثل پیام تایپی انجامش می‌دهد
 - و سوال‌های معمولی که به زبان خودتان جواب داده می‌شوند
 
@@ -322,7 +356,7 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 | **v0.4.0** | **Agent هوش مصنوعی** (فهم هر جمله، پیگیری حرف‌های قبلی، برگشت / ویرایش)، مدل‌های رایگان هوش مصنوعی از ۵ سرویس با جایگزینی خودکار، عوض کردن مدل داخل ربات و اعلان، هزینه‌ها، ۱۳ دسته با یادگیری، گزارش‌ها | ✅ انجام شد |
 | **v0.5.0** | **فایل اکسل از داخل چت** (هزینه‌ها، یادآورها، هر جدولی)، گزارش شبانه، تنظیم ساعت خلاصه صبحگاهی و گزارش شبانه | ✅ انجام شد |
 | **v0.6.0** | **پیام صوتی و فایل صوتی** ← متن (Groq Whisper و Gemini رایگان، faster-whisper لوکال به‌عنوان پشتیبان)، دقیقاً مثل پیام تایپی | ✅ انجام شد |
-| v0.7.0 | یادداشت‌ها، کارهای روزانه، پشتیبان‌گیری | |
+| **v0.7.0** | **کارهای روزانه** (لیست هر روز، کارهای انجام‌نشده منتقل می‌شوند)، **یادداشت‌ها** (برچسب، جستجو، یادداشت صوتی با خلاصه، سنجاق)، **پشتیبان‌گیری** (هفتگی و بازگردانی)؛ همه دکمه‌های منو کار می‌کنند | ✅ انجام شد |
 | v1.0.0 | تست کامل، بهینه‌سازی، راهنمای نصب | |
 
 نقشه کامل پروژه در [docs/ROADMAP.md](docs/ROADMAP.md) است.
@@ -368,6 +402,29 @@ docker compose logs -f bot
 در اولین اجرا، کانتینر `ollama-init` مدل لوکال پروفایل شما (پشتیبان) را دانلود می‌کند. پیشرفتش را با
 `docker compose logs -f ollama-init` ببینید. با `PROFILE=remote` و `COMPOSE_PROFILES` خالی، هیچ مدل
 لوکالی استفاده نمی‌شود.
+
+### به‌روزرسانی
+
+روی سرور، داخل پوشه پروژه:
+
+</div>
+
+```bash
+git pull                       # آخرین نسخه منتشرشده (شاخه main)
+docker compose up -d --build   # ساخت دوباره ایمیج؛ ربات با همان اطلاعات دوباره بالا می‌آید
+docker compose logs -f bot     # بررسی بالا آمدن ربات (با Ctrl+C از لاگ خارج شوید)
+```
+
+<div dir="rtl">
+
+- اطلاعات شما در `./data` (دیتابیس و مدل‌های صوتی دانلودشده) و `./models` (Ollama) می‌ماند؛ چیزی پاک
+  نمی‌شود و تغییرات دیتابیس هنگام اجرا خودکار اعمال می‌شوند.
+- تنظیمات جدید همیشه مقدار پیش‌فرض دارند؛ برای استفاده از امکانات جدید `.env` خود را با `.env.example`
+  مقایسه کنید.
+- قبل از یک به‌روزرسانی بزرگ می‌توانید `/backup` را به ربات بفرستید تا یک نسخه از اطلاعاتتان داشته باشید.
+- برای امتحان یک نسخه قبل از انتشار: `git checkout dev && git pull` و بعد همان
+  `docker compose up -d --build`؛ با `git checkout main && git pull` به نسخه منتشرشده برمی‌گردید.
+- ایمیج‌های قدیمی فضا می‌گیرند: `docker image prune -f` ایمیج‌های بلااستفاده را پاک می‌کند.
 
 ### ویرا چطور فکر می‌کند
 
@@ -425,7 +482,16 @@ docker compose logs -f bot
   «یه برنامه ورزشی هفتگی به صورت اکسل بده». فایل هزینه‌ها یک شیت با همه هزینه‌ها و شیت‌هایی با جمع هر
   دسته / روز / هفته / ماه و نمودار دارد، با تاریخ‌های تقویم انتخابی. اگر جزئیاتی نگویید، هزینه‌های
   همین ماه فرستاده می‌شود.
-- **خلاصه صبحگاهی:** هر روز ساعت ۸ صبح، یادآورهای امروز با موارد مهم (⭐) در بالا.
+- ✅ **کارهای روزانه:** کاری را که باید انجام دهید بگویید («فردا باید نون بخرم») یا از ✅ Today To-Dos ←
+  ➕ Add. بدون ساعت و بدون «یادم بنداز» کار روزانه ثبت می‌شود و با آن‌ها یادآور. تیک زدن با یک لمس یا با گفتن
+  «نون رو خریدم». کارهای انجام‌نشده با روز اصلی‌شان در لیست امروز می‌مانند؛ ◀️ ▶️ روزهای دیگر را نشان می‌دهد.
+- 📝 **یادداشت‌ها:** «یادداشت کن …» یا یک پیام صوتی طولانی که کلمه به کلمه با عنوان و خلاصه کوتاه ذخیره
+  می‌شود. برچسب‌ها خودکار گذاشته می‌شوند؛ با پرسیدن («یادداشت‌های ماشین رو بیار») یا از 📝 Notes پیدایشان
+  کنید و آن‌جا 📌 سنجاق، ✏️ ویرایش یا 🗑 حذف کنید.
+- 💾 **پشتیبان‌گیری:** `/backup` یا ⚙️ Settings ← 💾 Backup همه اطلاعات را در یک فایل می‌فرستد و هر جمعه
+  شب هم یک نسخه خودکار می‌آید. برای بازگردانی (مثلاً روی سرور جدید) همان فایل را به ربات بفرستید: ربات
+  تأیید می‌گیرد و اول از اطلاعات فعلی هم یک نسخه می‌فرستد.
+- **خلاصه صبحگاهی:** هر روز ساعت ۸ صبح، یادآورهای امروز با موارد مهم (⭐) در بالا و کارهای امروز.
 - **گزارش شبانه:** هر روز ساعت ۱۰ شب، هزینه‌های امروز (اگر چیزی ثبت نشده باشد یک یادآوری برای ثبت
   هزینه‌های جاافتاده)، جمع ماه تا امروز و یادآورهای فردا.
 - ⚙️ **Settings ← ☀️ Morning briefing / 🌙 Nightly report:** روشن / خاموش کردن و تنظیم ساعت (یا فقط
@@ -493,7 +559,8 @@ docker compose logs -f bot
 - `app/texts.py`: همه متن‌هایی که کاربر می‌بیند (برای تغییر متن‌ها فقط همین فایل را ویرایش کنید)
 - `app/agent/`: مغز برنامه، یک Agent هوش مصنوعی با ابزارهای مشخص
   - `core.py`: حلقه اصلی (مدل ← درخواست ابزار ← نتیجه ← جواب کوتاه)
-  - `tools/`: ابزارهای هزینه، یادآور، فایل اکسل و عمومی (گزارش، تاریخ، تنظیمات) همراه با بررسی ورودی‌ها
+  - `tools/`: ابزارهای هزینه، یادآور، کار روزانه، یادداشت، فایل اکسل و عمومی (گزارش، تاریخ، تنظیمات)
+    همراه با بررسی ورودی‌ها
   - `actions.py`: ثبت کارهای انجام‌شده برای ↩️ برگشت
   - `context.py`: اطلاعات هر پیام (زمان فعلی و جدول تاریخ‌ها به شمسی و میلادی)
   - `prompt.py`: پرامپت سیستمی
@@ -504,15 +571,16 @@ docker compose logs -f bot
   (ترتیب و جایگزینی خودکار)
 - `app/bot/`: لایه تلگرام، بدون منطق اصلی برنامه
   - `handlers/`: `assistant.py` (پیام آزاد ← Agent)، چت‌های قبلی، تنظیمات، دسته‌ها، `ai_models.py`
-    (🤖 AI model)، یادآورها، هزینه‌ها و گزارش‌ها (دکمه‌ها و روش قانون‌محور پشتیبان)، منو و پیام‌های ناشناخته
+    (🤖 AI model)، پشتیبان‌گیری، کارهای روزانه، یادداشت‌ها، یادآورها، هزینه‌ها و گزارش‌ها (دکمه‌ها و روش
+    قانون‌محور پشتیبان) و پیام‌های ناشناخته
   - `agent_ui.py`: کارت نتیجه‌ها با ↩️ برگشت / ✏️ ویرایش و اعلان‌های تعویض مدل
   - `keyboards/`، `middlewares/` (`voice.py` صدا را قبل از مسیریابی به متن تبدیل می‌کند و `notices.py`
     اعلان تعویض مدل را بعد از هر پیام می‌فرستد)، `views.py`، `streaming.py`، `states.py`
 - `app/core/`: ابزارهای دقیق زبانی بدون هوش مصنوعی: نرمال‌سازی متن، پیدا کردن ارجاع‌ها
   («تایم دکتر» ← یادآور دکتر) و پارسرهای تاریخ، مبلغ، یادآور و هزینه
 - `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (یادآورها، هزینه‌ها، گزارش‌ها، ساخت فایل اکسل،
-  تاریخچه چت، تنظیمات)
-- `app/scheduler/`: ارسال یادآورها، خلاصه صبحگاهی و گزارش شبانه
+  کارهای روزانه، یادداشت‌ها، پشتیبان‌گیری، تاریخچه چت، تنظیمات)
+- `app/scheduler/`: ارسال یادآورها، خلاصه صبحگاهی، گزارش شبانه و پشتیبان هفتگی
 - `app/db/`، `app/utils/`، `migrations/`، `tests/`، `docker/`
 - `scripts/eval_agent.py`: سنجش دقت و سرعت هر مدل روی پیام‌های واقعی فارسی و انگلیسی
 

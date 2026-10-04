@@ -53,7 +53,10 @@ HELP = (
     "  — <i>اکسل هزینه‌های این ماه رو بده</i>\n"
     "  — <i>Excel of last month's food expenses, totals per week</i>\n"
     "  — <i>یه جدول برنامه ورزشی هفتگی به صورت اکسل بده</i>\n"
-    "• Every night at 22:00: today's expenses and tomorrow's reminders (⚙️ Settings)\n\n"
+    "• Every night at 22:00: today's expenses and tomorrow's reminders (⚙️ Settings)\n"
+    "• To-dos and notes, just say them:\n"
+    "  — <i>فردا باید نون بخرم و قبض برق رو بدم</i>\n"
+    "  — <i>یادداشت کن رمز وای‌فای مهمون 12345678 هست</i>\n\n"
     "<b>Commands</b>\n"
     "/menu — show the main menu\n"
     "/new — start a new chat\n"
@@ -68,7 +71,6 @@ MENU = "📋 Main menu"
 CANCELLED = "❌ Cancelled."
 NOTHING_TO_CANCEL = "There's nothing to cancel."
 
-COMING_SOON = "🚧 <b>{feature}</b> is coming in <b>{version}</b>. Stay tuned!"
 UNKNOWN_COMMAND = "I don't know that command. See /help."
 UNSUPPORTED_MESSAGE = "I can read text, voice messages and audio files."
 
@@ -199,6 +201,8 @@ BRIEFING_TITLE = "☀️ <b>Good morning!</b> Today is {today}."
 BRIEFING_IMPORTANT = "⭐ <b>Important</b>"
 BRIEFING_TODAY = "📋 <b>Today</b>"
 BRIEFING_ITEM = "• {time} — {subject}"
+BRIEFING_TODOS = "✅ <b>To-dos</b>"
+BRIEFING_TODO = "☐ {text}{origin}"
 
 # --- Expenses ---
 CURRENCY_LABELS = {"toman": "toman", "rial": "rial"}
@@ -340,6 +344,90 @@ NIGHTLY_MONTH = "📅 This month so far: <b>{amount}</b> · daily average {avera
 NIGHTLY_TOMORROW = "⏰ <b>Tomorrow</b>"
 NIGHTLY_TOMORROW_EMPTY = "⏰ Nothing scheduled for tomorrow."
 NIGHTLY_ITEM = "• {star}{time} — {subject}"
+NIGHTLY_TODOS_DONE = "✅ All {total} to-dos done 🎉"
+NIGHTLY_TODOS_OPEN = (
+    "✅ To-dos: {done} of {total} done · still open: {items} (they stay on the list)"
+)
+
+# --- To-dos (✅ Today To-Dos, agent cards) ---
+TODOS_TITLE = "✅ <b>To-dos</b> · {day}"
+TODOS_CARRIED = "⏳ <b>From earlier days</b>"
+TODOS_PLANNED = "📋 <b>Planned</b>"
+TODO_OPEN = "☐ {text}{origin}"
+TODO_DONE = "☑ <s>{text}</s>{origin}"
+TODO_ORIGIN = " <i>({day})</i>"
+TODOS_PROGRESS = "<i>{done} of {total} done</i>"
+TODOS_EMPTY = "Nothing on the list. Just tell me what you need to do, e.g. «فردا باید نون بخرم»."
+TODOS_ADD_PROMPT = "✍️ Send the tasks for {day}: one per line, or in a sentence."
+BTN_TODO_ADD = "➕ Add"
+BTN_PREV_DAY = "◀️"
+BTN_NEXT_DAY = "▶️"
+BTN_TODAY = "📅 Today"
+TODO_NOT_FOUND = "This to-do no longer exists."
+AGENT_HINT_TODO = "[The user tapped ➕ Add on the to-do list of {day}: this message lists tasks]"
+AGENT_TODOS_ADDED = "✅ <b>Added to the to-dos</b> · {day}"
+AGENT_TODOS_UPDATED = "✅ <b>To-dos updated</b>"
+AGENT_TODOS_DELETED = "🗑 <b>To-dos deleted</b>"
+
+# --- Notes (📝 Notes, agent cards) ---
+NOTES_TITLE = "📝 <b>Notes</b> ({count})"
+NOTES_FOUND = "🔎 <b>Notes</b> · «{query}»"
+NOTES_EMPTY = "No notes yet. Say «یادداشت کن …» or send a voice note."
+NOTES_ITEM = "{n}. {pin}<b>{title}</b>{tags} · <i>{date}</i>"
+NOTES_SEARCH_HINT = "<i>To search, just ask, e.g. «یادداشت‌های مربوط به ماشین»</i>"
+NOTE_PIN = "📌 "
+NOTE_CARD = "📝 <b>{title}</b>{pin}\n{meta}\n\n{body}"
+NOTE_META = "{tags}<i>{date}</i>"
+NOTE_SUMMARY = "<b>Summary:</b> {summary}\n\n"
+NOTE_VOICE = " · 🎙"
+NOTE_MORE = "\n\n<i>… ({count} more characters)</i>"
+BTN_NOTE_PIN = "📌 Pin"
+BTN_NOTE_UNPIN = "📌 Unpin"
+NOTE_PINNED = "📌 Pinned"
+NOTE_UNPINNED = "Unpinned"
+NOTE_DELETE_CONFIRM = "🗑 Delete the note <b>{title}</b>?"
+NOTE_DELETED = "🗑 Note deleted."
+NOTE_NOT_FOUND = "This note no longer exists."
+NOTE_EDIT_PROMPT = (
+    "✏️ What should change in this note? E.g. «شیر رو هم اضافه کن» or «اسمش رو بکن …»."
+)
+AGENT_EDIT_NOTE_HINT = (
+    "[The user wants to change note #{id} «{title}»: use update_note with id {id}]"
+)
+AGENT_NOTE_SAVED = "📝 <b>Note saved</b>"
+AGENT_NOTE_UPDATED = "📝 <b>Note updated</b>"
+AGENT_NOTES_DELETED = "🗑 <b>Notes deleted</b>"
+
+# --- Backup (/backup, ⚙️ Settings → 💾 Backup) ---
+BACKUP_CAPTION = (
+    "💾 <b>Backup</b> · {date}\n{counts}\n<i>To restore it (e.g. on a new server), send this file "
+    "back to me.</i>"
+)
+BACKUP_BEFORE_RESTORE = "💾 Your data before the restore, just in case."
+BACKUP_COUNTS = "{expenses} expenses · {reminders} reminders · {todos} to-dos · {notes} notes"
+BACKUP_TITLE = "💾 <b>Backup</b>"
+BACKUP_ABOUT = (
+    "A copy of all your data as one file. To restore it, e.g. on a new server, send the file to me."
+)
+BACKUP_WEEKLY_ON = "Weekly copy: <b>on</b> (Fridays at {time})"
+BACKUP_WEEKLY_OFF = "Weekly copy: <b>off</b>"
+BTN_BACKUP = "💾 Backup"
+BTN_BACKUP_NOW = "📤 Send a backup now"
+BTN_BACKUP_WEEKLY_ON = "✅ Turn the weekly copy on"
+BTN_BACKUP_WEEKLY_OFF = "⏸ Turn the weekly copy off"
+BACKUP_WEEKLY_CHANGED = "✅ Weekly copy: {state}"
+BACKUP_FAILED = "💾 The backup could not be made. Please try again."
+RESTORE_CHECK = (
+    "💾 <b>Restore this backup?</b>\nMade on {date}\n{counts}\n\n⚠️ It replaces all current data. "
+    "A copy of the current data is sent to you first."
+)
+BTN_RESTORE = "✅ Restore"
+RESTORE_INVALID = "This file isn't a Vira backup ({reason})."
+RESTORE_NEWER = "This backup comes from a newer version of Vira: update the bot first."
+RESTORE_TOO_BIG = "This file is larger than 20 MB, which bots can't download."
+RESTORE_DONE = "✅ Restored. {counts}"
+RESTORE_CANCELLED = "Restore cancelled; nothing changed."
+RESTORE_EXPIRED = "This restore request is out of date. Please send the file again."
 
 # --- Excel files (English; dates in the selected calendar) ---
 GREGORIAN_MONTH_NAMES = (

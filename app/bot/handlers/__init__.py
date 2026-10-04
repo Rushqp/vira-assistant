@@ -5,16 +5,18 @@ from aiogram import Router
 from app.bot.handlers import (
     ai_models,
     assistant,
+    backup,
     categories,
     chat,
     chats,
     expenses,
     fallback,
-    menu,
+    notes,
     reminders,
     reports,
     settings,
     start,
+    todos,
 )
 
 
@@ -28,7 +30,9 @@ def build_router() -> Router:
         settings.router,
         ai_models.router,
         categories.router,
-        menu.router,
+        backup.router,
+        todos.router,
+        notes.router,
         chats.router,
         reminders.router,
         reports.router,

@@ -3,9 +3,11 @@
 - `send_due_reminders` (every 20 s): reminder alerts.
 - `send_daily_digests` (every 30 s): the morning briefing and the nightly report, at the times
   chosen in ⚙️ Settings (defaults from .env). A message missed while the bot was offline is
-  still sent within `DIGEST_GRACE` of its time, on the same day.
+  still sent within `DIGEST_GRACE` of its time, on the same day. Also the weekly backup
+  (Friday night; a missed one is sent at the next start).
 """
 
+import sqlite3
 from datetime import datetime, time, timedelta
 
 from aiogram import Bot
@@ -15,13 +17,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app import texts
 from app.bot import views
+from app.bot.handlers.backup import last_slot, send_backup
 from app.bot.keyboards.inline import reminder_notification
 from app.config import Settings
 from app.db.models import utcnow
+from app.services.backup import BackupError
 from app.services.expenses import ExpenseService
 from app.services.reminders import ReminderService
 from app.services.reports import ReportService
 from app.services.settings import SettingsService
+from app.services.todos import TodoService
 from app.utils.calendar import now_local
 
 # An alert sent more than this after its time is marked "sent late".
@@ -57,7 +62,8 @@ async def send_due_reminders(
 async def send_morning_briefing(
     bot: Bot, sessionmaker: async_sessionmaker[AsyncSession], config: Settings
 ) -> None:
-    """Today's reminders, important ones first. Sent at most once a day, skipped if empty."""
+    """Today's reminders (important first) and open to-dos. At most once a day; skipped when
+    there is nothing for today."""
     now = now_local(config.timezone)
     async with sessionmaker() as session:
         settings = SettingsService(session, config.default_calendar)
@@ -66,14 +72,14 @@ async def send_morning_briefing(
         reminders = await ReminderService(session, config.timezone, config.day_times).on_day(
             now.date()
         )
+        todos = (await TodoService(session).day_list(now.date(), now.date())).open
         await settings.mark_briefing_sent(now.date())
-        if not reminders:
+        if not reminders and not todos:
             return
         calendar = await settings.get_calendar()
+        text = views.briefing(reminders, now, config.timezone, calendar, todos)
         try:
-            await bot.send_message(
-                config.owner_id, views.briefing(reminders, now, config.timezone, calendar)
-            )
+            await bot.send_message(config.owner_id, text)
         except TelegramAPIError as exc:
             logger.warning("Could not send the morning briefing: {}", exc)
 
@@ -96,6 +102,7 @@ async def send_nightly_report(
         tomorrow = await ReminderService(session, config.timezone, config.day_times).on_day(
             today + timedelta(days=1)
         )
+        todos = await TodoService(session).day_list(today, today)
         await settings.mark_nightly_sent(today)
         text = views.nightly_report(
             day,
@@ -104,6 +111,7 @@ async def send_nightly_report(
             config.timezone,
             calendar,
             texts.CURRENCY_LABELS[config.currency.value],
+            todos,
         )
         try:
             await bot.send_message(config.owner_id, text)
@@ -120,7 +128,7 @@ def is_due(now: datetime, at: time) -> bool:
 async def send_daily_digests(
     bot: Bot, sessionmaker: async_sessionmaker[AsyncSession], config: Settings
 ) -> None:
-    """Send the morning briefing and the nightly report when their time has come."""
+    """Send the morning briefing, the nightly report and the weekly backup when it's time."""
     now = now_local(config.timezone)
     async with sessionmaker() as session:
         settings = SettingsService(session, config.default_calendar)
@@ -130,3 +138,30 @@ async def send_daily_digests(
         await send_morning_briefing(bot, sessionmaker, config)
     if is_due(now, nightly_at):
         await send_nightly_report(bot, sessionmaker, config)
+    await send_weekly_backup(bot, sessionmaker, config)
+
+
+async def send_weekly_backup(
+    bot: Bot, sessionmaker: async_sessionmaker[AsyncSession], config: Settings
+) -> None:
+    """Every Friday night a backup file. One missed while offline is sent at the next start
+    (once); a new install starts counting from its first week."""
+    slot = last_slot(now_local(config.timezone)).date()
+    async with sessionmaker() as session:
+        settings = SettingsService(session, config.default_calendar)
+        if not await settings.backup_enabled():
+            return
+        done = await settings.backup_done_on()
+        if done is not None and done >= slot:
+            return
+        calendar = await settings.get_calendar()
+        if done is None:  # first run: nothing to back up yet
+            await settings.mark_backup(slot)
+            return
+    try:
+        await send_backup(bot, config, calendar)
+    except (TelegramAPIError, BackupError, OSError, sqlite3.Error) as exc:
+        logger.warning("Weekly backup not sent: {} (will retry)", exc)
+        return
+    async with sessionmaker() as session:
+        await SettingsService(session, config.default_calendar).mark_backup(slot)

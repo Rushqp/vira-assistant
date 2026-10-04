@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from app.llm.client import LLMResponse, ToolCall
@@ -80,3 +81,18 @@ async def test_excel_cases(config):
     no_file = ScriptedModel([LLMResponse(content="Here is your table: …", provider="x")])
     ok, detail, _ = await eval_agent.run_case(case("excel-table"), no_file, config)
     assert not ok and "no file" in detail
+
+
+async def test_todo_and_note_cases(config):
+    tomorrow = (datetime.now(config.timezone) + timedelta(days=1)).date().isoformat()
+    todos = ScriptedModel([tool("add_todos", items=["نون بخرم", "قبض برق"], date=tomorrow)])
+    ok, detail, _ = await eval_agent.run_case(case("todo-tomorrow"), todos, config)
+    assert ok, detail
+
+    as_todo = ScriptedModel([tool("add_todos", items=["نون بخرم"])])  # should be a reminder
+    ok, detail, _ = await eval_agent.run_case(case("reminder-not-todo"), as_todo, config)
+    assert not ok and "to-dos instead" in detail
+
+    note = ScriptedModel([tool("save_note", text="رمز: 12345678", title="رمز", tags=["رمز"])])
+    ok, detail, _ = await eval_agent.run_case(case("note"), note, config)
+    assert ok, detail

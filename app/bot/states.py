@@ -36,3 +36,7 @@ class AgentForm(StatesGroup):
     hint = State()  # ⏰ New Reminder / 💰 Add Expense was tapped
     edit = State()  # ✏️ Edit was tapped on a result card
     pending = State()  # waiting for "thousand or million?" (data: "agent_pending" draft)
+
+
+class BackupForm(StatesGroup):
+    confirm = State()  # a backup file was sent: waiting for ✅ Restore (data: "restore_file")

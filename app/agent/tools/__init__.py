@@ -19,8 +19,10 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from app.config import Calendar, Settings
 from app.services.expenses import ExpenseService
+from app.services.notes import NoteService
 from app.services.reminders import ReminderService
 from app.services.settings import SettingsService
+from app.services.todos import TodoService
 
 CardKind = Literal[
     "expenses_saved",
@@ -32,6 +34,14 @@ CardKind = Literal[
     "report",
     "settings",
     "file",
+    "todos_added",
+    "todos_updated",
+    "todos_deleted",
+    "todos_list",
+    "note_saved",
+    "note_updated",
+    "notes_deleted",
+    "notes_found",
 ]
 
 
@@ -80,6 +90,14 @@ class ToolContext:
     reminders: ReminderService
     settings: SettingsService
     actions: Any  # ActionLog (imported lazily to avoid a cycle)
+    notes: NoteService | None = None  # created from the session when not given
+    todos: TodoService | None = None
+    voice: bool = False  # the message is the transcript of a voice message
+
+    def __post_init__(self) -> None:
+        session = self.expenses.session
+        self.notes = self.notes or NoteService(session)
+        self.todos = self.todos or TodoService(session)
 
     @property
     def today(self) -> date:
@@ -159,6 +177,10 @@ def build_registry() -> ToolRegistry:
     from app.agent.tools.expenses import EXPENSE_TOOLS
     from app.agent.tools.files import FILE_TOOLS
     from app.agent.tools.general import GENERAL_TOOLS
+    from app.agent.tools.notes import NOTE_TOOLS
     from app.agent.tools.reminders import REMINDER_TOOLS
+    from app.agent.tools.todos import TODO_TOOLS
 
-    return ToolRegistry([*EXPENSE_TOOLS, *REMINDER_TOOLS, *GENERAL_TOOLS, *FILE_TOOLS])
+    return ToolRegistry(
+        [*EXPENSE_TOOLS, *REMINDER_TOOLS, *TODO_TOOLS, *NOTE_TOOLS, *GENERAL_TOOLS, *FILE_TOOLS]
+    )

@@ -10,6 +10,7 @@ import asyncio
 import html
 import re
 from dataclasses import dataclass
+from datetime import date
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -24,6 +25,7 @@ from app.agent.core import Agent, AgentUnavailable
 from app.agent.tools import Card, ToolContext
 from app.agent.tools.expenses import save_expense_draft
 from app.agent.tools.files import ExportExpensesArgs, export_expenses
+from app.agent.tools.todos import AddTodosArgs, add_todos
 from app.bot.agent_ui import (
     UiDeps,
     render_card,
@@ -69,6 +71,7 @@ _SCALE_ANSWERS = {
     "m": re.compile(r"^\s*(?:میلیون|ملیون|میلیون تومن|میلیون تومان|million|m|mil)\s*$", re.I),
 }
 _HINTS = {"reminder": texts.AGENT_HINT_REMINDER, "expense": texts.AGENT_HINT_EXPENSE}
+_TASK_SPLIT = re.compile(r"\s*(?:\n|[,،؛;])\s*")
 
 
 @dataclass
@@ -96,7 +99,7 @@ class Deps:
             self.settings_service,
         )
 
-    def tool_context(self, user_text: str) -> ToolContext:
+    def tool_context(self, user_text: str, voice: bool = False) -> ToolContext:
         return ToolContext(
             config=self.config,
             calendar=self.calendar,
@@ -106,6 +109,7 @@ class Deps:
             reminders=self.reminder_service,
             settings=self.settings_service,
             actions=self.action_log,
+            voice=voice,
         )
 
 
@@ -150,7 +154,13 @@ async def send_cards(message: Message, cards: list[Card], deps: Deps) -> None:
 # --- The agent turn ---
 
 
-async def run_agent(deps: Deps, text: str, hint: str = "", voice: bool = False) -> None:
+async def run_agent(
+    deps: Deps,
+    text: str,
+    hint: str = "",
+    voice_seconds: int | None = None,
+    todo_day: date | None = None,
+) -> None:
     message = deps.message
     chat = await deps.chat_service.active_session()
     history = [
@@ -161,18 +171,18 @@ async def run_agent(deps: Deps, text: str, hint: str = "", voice: bool = False) 
     async with _generation_lock, ChatActionSender.typing(chat_id=message.chat.id, bot=message.bot):
         try:
             result = await deps.agent.run(
-                deps.tool_context(text),
+                deps.tool_context(text, voice=voice_seconds is not None),
                 history,
                 text,
                 on_text=streamer.push,
                 hint=hint,
-                voice=voice,
+                voice_seconds=voice_seconds,
             )
         except AgentUnavailable as exc:
             logger.info("Agent unavailable ({}): rule-based fallback", exc)
             # Say why the answer is basic before it comes (e.g. "free quota used up").
             await send_notices(message.bot, message.chat.id, deps.llm, deps.config.timezone)
-            await fallback(deps, text, hint)
+            await fallback(deps, text, hint, todo_day)
             return
         except LLMError as exc:  # failed after part of the answer was shown
             await streamer.finish(
@@ -245,7 +255,7 @@ async def resolve_scale(deps: Deps, choice: str, target: Message, edit: bool) ->
 # --- When no model is available ---
 
 
-async def fallback(deps: Deps, text: str, hint: str) -> None:
+async def fallback(deps: Deps, text: str, hint: str, todo_day: date | None = None) -> None:
     """The v0.3/v0.4 rule-based pipeline, then plain chat."""
     # Imported here: these handler modules import nothing from this one, but keep it lazy
     # so the fallback stays an optional dependency of the agent path.
@@ -254,6 +264,12 @@ async def fallback(deps: Deps, text: str, hint: str) -> None:
     from app.bot.handlers import reports
 
     message, state, data = deps.message, deps.state, deps
+    if todo_day is not None:  # ➕ Add on the to-do list: one task per line (or per comma)
+        items = [i for i in _TASK_SPLIT.split(text) if i.strip()]
+        args = AddTodosArgs(items=items or [text], date=todo_day.isoformat())
+        outcome = await add_todos(args, deps.tool_context(text))
+        await send_cards(message, [outcome.card] if outcome.card else [], deps)
+        return
     if not hint and has_export_intent(text):
         await send_default_export(deps, text)
         return
@@ -339,14 +355,23 @@ async def free_text(message: Message, state: FSMContext, **data) -> None:
     deps = await _deps(message, state, data)
     text = (message.text or "").strip()
     hint = ""
+    todo_day: date | None = None
     form = await state.get_state()
     stored = await state.get_data()
-    if form == AgentForm.hint.state:
+    if form == AgentForm.hint.state and stored.get("hint") == "todo":
+        day = stored.get("day")
+        todo_day = date.fromisoformat(day) if day else now_local(deps.config.timezone).date()
+        hint = texts.AGENT_HINT_TODO.format(day=todo_day.isoformat())
+    elif form == AgentForm.hint.state:
         hint = _HINTS.get(stored.get("hint", ""), "")
     elif form == AgentForm.edit.state and (aid := stored.get("edit_action")):
         action = await deps.action_log.get(aid)
         if action is not None:
             hint = texts.AGENT_EDIT_HINT.format(summary=action.summary)
+    elif form == AgentForm.edit.state and (nid := stored.get("edit_note")):
+        note = await data["note_service"].get(nid)
+        if note is not None:
+            hint = texts.AGENT_EDIT_NOTE_HINT.format(id=note.id, title=note.title)
     if form:
         await state.clear()
 
@@ -355,7 +380,7 @@ async def free_text(message: Message, state: FSMContext, **data) -> None:
         if builtin is not None:
             await message.answer(builtin)
             return
-    await run_agent(deps, text, hint, voice=bool(data.get("voice")))
+    await run_agent(deps, text, hint, voice_seconds=data.get("voice_seconds"), todo_day=todo_day)
 
 
 # --- Buttons on result cards ---

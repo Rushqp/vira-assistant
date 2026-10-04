@@ -16,6 +16,8 @@ KEY_NIGHTLY = "nightly_report"  # "on" | "off"
 KEY_NIGHTLY_TIME = "nightly_report_time"  # "HH:MM" (default DAILY_REPORT_TIME)
 KEY_NIGHTLY_LAST = "nightly_report_last"  # ISO date of the last nightly report sent
 NIGHTLY_EARLIEST = time(12, 0)  # the nightly report sums up the day: 12:00–23:59
+KEY_BACKUP = "weekly_backup"  # "on" | "off"
+KEY_BACKUP_LAST = "weekly_backup_last"  # ISO date of the last weekly backup slot
 KEY_AI_MODEL = "ai_model"  # "auto" or "provider|model"
 
 
@@ -123,3 +125,18 @@ class SettingsService:
             return time.fromisoformat(value) if value else default
         except ValueError:
             return default
+
+    # --- Weekly backup ---
+
+    async def backup_enabled(self) -> bool:
+        return (await self.get(KEY_BACKUP)) != "off"
+
+    async def set_backup(self, enabled: bool) -> None:
+        await self.set(KEY_BACKUP, "on" if enabled else "off")
+
+    async def backup_done_on(self) -> date | None:
+        value = await self.get(KEY_BACKUP_LAST)
+        return date.fromisoformat(value) if value else None
+
+    async def mark_backup(self, day: date) -> None:
+        await self.set(KEY_BACKUP_LAST, day.isoformat())

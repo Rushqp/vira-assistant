@@ -21,8 +21,19 @@ from app.llm.client import ChatMessage, LLMError
 
 MAX_ROUNDS = 4
 VOICE_NOTE = (
-    "[Voice message: this is its automatic transcript, which may contain recognition errors]"
+    "[Voice message{length}: this is its automatic transcript, which may contain recognition "
+    "errors]"
 )
+
+
+def voice_note(seconds: int | None) -> str:
+    """The line telling the model the message is a voice transcript (and how long it was)."""
+    if seconds is None:
+        return ""
+    minutes, rest = divmod(seconds, 60)
+    length = f" ({minutes} min {rest} s)" if minutes else f" ({rest} s)" if seconds else ""
+    return VOICE_NOTE.format(length=length)
+
 
 # "I've saved it / it was cancelled / ثبت شد / کنسل کردم ..." said without calling any tool.
 _DONE_EN = (
@@ -74,12 +85,12 @@ class Agent:
         text: str,
         on_text: Callable[[str], Any] | None = None,
         hint: str = "",
-        voice: bool = False,
+        voice_seconds: int | None = None,
     ) -> AgentResult:
         categories = [c.name for c in await ctx.expenses.categories()]
         system = build_system_prompt(categories, ctx.config.day_times)
         context = build_context(ctx.now, ctx.calendar, ctx.currency)
-        notes = "\n".join(filter(None, [hint, VOICE_NOTE if voice else ""]))
+        notes = "\n".join(filter(None, [hint, voice_note(voice_seconds)]))
         user = f"{context}\n{notes}\n\n{text}" if notes else f"{context}\n\n{text}"
         messages: list[ChatMessage] = [
             {"role": "system", "content": system},

@@ -41,15 +41,15 @@ async def test_new_chat_button_and_command(env):
     assert session.sent[-1] == texts.NEW_CHAT
 
 
-async def test_planned_buttons_and_commands_do_not_reach_llm(env):
+async def test_buttons_and_commands_do_not_reach_llm(env):
     send, session, llm = env
     await send(texts.BTN_NOTES)
     await send("/backup")
     await send("/whatever")
-    assert llm.calls == []
-    assert "v0.7" in session.sent[0]
-    assert "v0.7" in session.sent[1]
-    assert session.sent[2] == texts.UNKNOWN_COMMAND
+    assert llm.calls == [] and llm.respond_calls == []
+    assert texts.NOTES_EMPTY in session.sent[0]
+    assert session.documents[0][0].startswith("vira-backup-")
+    assert session.sent[-1] == texts.UNKNOWN_COMMAND
 
 
 async def test_llm_failure_shows_notice(env):

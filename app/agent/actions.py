@@ -9,8 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AgentAction, utcnow
 from app.services.expenses import ExpenseService
+from app.services.notes import NoteService
 from app.services.reminders import ReminderService
 from app.services.settings import SettingsService
+from app.services.todos import TodoService
 
 
 class ActionLog:
@@ -20,11 +22,15 @@ class ActionLog:
         expenses: ExpenseService,
         reminders: ReminderService,
         settings: SettingsService,
+        notes: NoteService | None = None,
+        todos: TodoService | None = None,
     ) -> None:
         self.session = session
         self.expenses = expenses
         self.reminders = reminders
         self.settings = settings
+        self.notes = notes or NoteService(session)
+        self.todos = todos or TodoService(session)
 
     async def record(self, kind: str, payload: dict, summary: str) -> AgentAction:
         action = AgentAction(
@@ -66,6 +72,16 @@ class ActionLog:
                         await self.settings.unset(key)
                     else:
                         await self.settings.set(key, value)
+            case "todos_added":
+                await self.todos.delete(data["ids"])
+            case "todos_updated" | "todos_deleted":
+                await self.todos.restore(data["rows"])
+            case "note_saved":
+                await self.notes.delete([data["id"]])
+            case "note_updated":
+                await self.notes.restore([data["previous"]])
+            case "notes_deleted":
+                await self.notes.restore(data["rows"])
             case _:
                 return None
         action.undone_at = utcnow()

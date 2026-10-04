@@ -49,3 +49,12 @@ def create_engine(database_url: str) -> AsyncEngine:
 
 def create_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
+
+
+def known_revisions() -> list[str]:
+    """Every migration revision of this app ("0001" …), e.g. to check a backup's schema."""
+    from alembic.script import ScriptDirectory
+
+    cfg = Config(str(PROJECT_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(PROJECT_ROOT / "migrations"))
+    return sorted(script.revision for script in ScriptDirectory.from_config(cfg).walk_revisions())

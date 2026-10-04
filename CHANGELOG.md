@@ -4,6 +4,38 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-10-05
+
+### Added
+- ✅ **To-dos**: a list per day. Say what you need to do (*«فردا باید نون بخرم و قبض برق رو
+  بدم»*) or use ✅ Today To-Dos → ➕ Add (one task per line; works without a model too)
+  - A task without a time and without «یادم بنداز» / "remind me" is a to-do; otherwise a reminder
+  - Tick with a tap (☐ / ☑) or by saying it (*«نون رو خریدم»*); rename, move to another day,
+    delete; ↩️ Undo on every change
+  - Unfinished tasks stay on today's list with their original day until done; ◀️ ▶️ show other
+    days
+  - Today's open tasks are in the morning briefing (sent now also when there are only to-dos),
+    and the nightly report says how many were done and which stay open
+- 📝 **Notes**: *«یادداشت کن …»* saves a note with a short title and 1–3 automatic tags
+  - A long voice message that isn't a request is saved word for word as a note, with a title
+    and a short summary
+  - Find notes by asking (*«یادداشت‌های ماشین رو بیار»*, or a `#tag`); 📝 Notes lists them
+    (pinned first) with 📌 pin, ✏️ edit (through the agent: *«شیر رو هم اضافه کن»*) and 🗑 delete
+- 💾 **Backup**: `/backup` or ⚙️ Settings → 💾 Backup sends all data as one file (a consistent
+  copy of the database, zipped); a copy comes every Friday at 23:30 (a missed one is sent at the
+  next start; can be turned off)
+  - **Restore**: send a backup file to the bot; it checks the file, shows what it contains, asks
+    for confirmation, sends the current data first, then restores in place and updates older
+    backups to the current version
+- 8 agent tools (`add_todos`, `list_todos`, `update_todos`, `delete_todos`, `save_note`,
+  `find_notes`, `update_note`, `delete_notes`); eval cases for to-dos and notes
+- Migration `0007` (notes, to-dos)
+- README: how to update the server
+
+### Changed
+- Every main-menu button works now; the "coming soon" placeholders are gone
+- The agent is told how long a voice message was
+
 ## [0.6.0] - 2026-10-05
 
 ### Added
@@ -199,6 +231,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - GitHub Actions CI: ruff lint + format check, pytest, Docker image build
 - Bilingual (English / Persian) README
 
+[0.7.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.4.0

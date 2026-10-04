@@ -116,5 +116,5 @@ class VoiceMiddleware(BaseMiddleware):
         typed = event.model_copy(
             update={"text": text, "voice": None, "audio": None, "document": None, "caption": None}
         )
-        data["voice"] = True  # the agent is told the text came from speech
+        data["voice_seconds"] = media.duration or 0  # the agent is told it came from speech
         return await handler(typed.as_(event.bot), data)

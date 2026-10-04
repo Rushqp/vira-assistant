@@ -11,8 +11,10 @@ from app.agent.actions import ActionLog
 from app.config import Settings
 from app.services.chat import ChatService
 from app.services.expenses import ExpenseService
+from app.services.notes import NoteService
 from app.services.reminders import ReminderService
 from app.services.settings import SettingsService
+from app.services.todos import TodoService
 
 
 class DbSessionMiddleware(BaseMiddleware):
@@ -45,7 +47,14 @@ class DbSessionMiddleware(BaseMiddleware):
             data["expense_service"] = ExpenseService(
                 session, self.config.timezone, self.config.currency.value
             )
+            data["note_service"] = NoteService(session)
+            data["todo_service"] = TodoService(session)
             data["action_log"] = ActionLog(
-                session, data["expense_service"], data["reminder_service"], data["settings_service"]
+                session,
+                data["expense_service"],
+                data["reminder_service"],
+                data["settings_service"],
+                data["note_service"],
+                data["todo_service"],
             )
             return await handler(event, data)

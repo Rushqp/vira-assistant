@@ -3,9 +3,9 @@
 All timestamps are stored as naive UTC datetimes.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -159,7 +159,8 @@ class AgentAction(Base):
     """Something the assistant did, with what is needed to undo it (↩️ Undo survives restarts).
 
     kind: expenses_added | expenses_deleted | expense_updated | reminder_created |
-          reminders_cancelled | reminder_updated | settings_updated
+          reminders_cancelled | reminder_updated | settings_updated | todos_added |
+          todos_updated | todos_deleted | note_saved | note_updated | notes_deleted
     """
 
     __tablename__ = "agent_actions"
@@ -171,3 +172,41 @@ class AgentAction(Base):
     summary: Mapped[str] = mapped_column(Text, default="")  # one line, shown to the model
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     undone_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+
+# --- Notes and to-dos (v0.7) ---
+
+
+class Note(Base):
+    """A note. `tags` are words without "#", separated by spaces (e.g. "خرید ماشین")."""
+
+    __tablename__ = "notes"
+    __table_args__ = {"sqlite_autoincrement": True}  # ids are used in buttons
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(120), default="")
+    text: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str | None] = mapped_column(Text, default=None)  # long / voice notes
+    tags: Mapped[str] = mapped_column(String(255), default="")
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    source: Mapped[str] = mapped_column(String(16), default="text")  # text | voice
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Todo(Base):
+    """A task for a day (`due_date`, local). Unfinished tasks of earlier days are shown in
+    today's list until they are done ("carried over")."""
+
+    __tablename__ = "todos"
+    __table_args__ = {"sqlite_autoincrement": True}  # ids are used in buttons
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    text: Mapped[str] = mapped_column(Text)
+    due_date: Mapped[date] = mapped_column(Date, index=True)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    @property
+    def done(self) -> bool:
+        return self.done_at is not None

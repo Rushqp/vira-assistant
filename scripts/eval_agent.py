@@ -211,6 +211,47 @@ def setting_is(key: str, value: str) -> Check:
     return check
 
 
+def todos_on(days_ahead: int, count: int) -> Check:
+    """`count` new to-dos on that day."""
+
+    async def check(o: Outcome) -> str | None:
+        day = (o.now + timedelta(days=days_ahead)).date()
+        items = (await o.ctx.todos.day_list(day, o.now.date())).planned
+        return None if len(items) == count else f"{len(items)} to-dos on {day}"
+
+    return check
+
+
+def todo_done(word: str) -> Check:
+    async def check(o: Outcome) -> str | None:
+        day = await o.ctx.todos.day_list(o.now.date(), o.now.date())
+        done = [t.text for t in day.done]
+        return None if any(word in t for t in done) else f"done: {done}"
+
+    return check
+
+
+def reminder_not_todo() -> Check:
+    async def check(o: Outcome) -> str | None:
+        todos = await o.ctx.todos.open_items()
+        if todos:
+            return f"to-dos instead: {[t.text for t in todos]}"
+        return None if await o.reminders() else "no reminder"
+
+    return check
+
+
+def note_with(text: str) -> Check:
+    async def check(o: Outcome) -> str | None:
+        notes = await o.ctx.notes.all()
+        hits = [n for n in notes if text in n.text]
+        if not hits:
+            return f"no note with {text!r}"
+        return None if hits[0].tags else "the note has no tags"
+
+    return check
+
+
 def tomorrow_iso(now: datetime) -> str:
     return (now + timedelta(days=1)).date().isoformat()
 
@@ -300,6 +341,26 @@ CASES = [
         "nightly-time",
         "گزارش شبانه رو ساعت ۱۱ شب بفرست",
         setting_is("nightly_report_time", "23:00"),
+    ),
+    Case("todo-tomorrow", "فردا باید نون بخرم و قبض برق رو بدم", todos_on(1, 2)),
+    Case(
+        "todo-done",
+        "نون رو خریدم",
+        todo_done("نون"),
+        setup=[("add_todos", {"items": ["نون بخرم"]})],
+    ),
+    Case("reminder-not-todo", "فردا ساعت ۹ صبح یادم بنداز نون بخرم", reminder_not_todo()),
+    Case("note", "یادداشت کن رمز وای فای مهمون 12345678 هست", note_with("12345678")),
+    Case(
+        "find-notes",
+        "یادداشت های مربوط به ماشین رو بیار",
+        used("notes_found"),
+        setup=[
+            (
+                "save_note",
+                {"text": "روغن ماشین هر ۵۰۰۰ کیلومتر", "title": "سرویس ماشین", "tags": ["ماشین"]},
+            )
+        ],
     ),
 ]
 

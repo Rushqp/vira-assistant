@@ -1,7 +1,6 @@
 """Smoke tests for the bot wiring (no network)."""
 
 from app import texts
-from app.bot.handlers.menu import PLANNED
 from app.bot.handlers.settings import render_settings
 from app.bot.keyboards.inline import SettingsCb, settings_menu
 from app.bot.keyboards.reply import main_menu
@@ -28,8 +27,10 @@ def test_every_menu_button_is_handled():
         texts.BTN_ADD_EXPENSE,
         texts.BTN_TODAY_REPORT,
         texts.BTN_MONTH_REPORT,
+        texts.BTN_TODOS,
+        texts.BTN_NOTES,
     }
-    assert labels == set(PLANNED) | implemented
+    assert labels == implemented  # every button works since v0.7
 
 
 def test_settings_keyboard_offers_the_other_calendar():
