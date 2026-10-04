@@ -1,13 +1,18 @@
 """Rendering agent results: one Telegram message (HTML text + buttons) per tool card.
 
 Cards are built from the database, so the user always sees what really happened.
+Also renders the notices about AI model switches (`render_notice`, `send_notices`).
 """
 
 import html
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
+from aiogram import Bot
+from aiogram.exceptions import TelegramAPIError
 from aiogram.types import InlineKeyboardMarkup
+from loguru import logger
 
 from app import texts
 from app.agent.tools import Card
@@ -15,6 +20,7 @@ from app.bot import views
 from app.bot.keyboards.inline import action_buttons, alert_options
 from app.config import Calendar, Settings
 from app.db.models import Expense
+from app.llm.providers import Notice
 from app.services.expenses import ExpenseService
 from app.services.reminders import ReminderService, from_utc
 from app.services.settings import KEY_BRIEFING, KEY_CALENDAR, SettingsService
@@ -140,3 +146,40 @@ async def render_card(card: Card, deps: UiDeps) -> Rendered | None:
                     lines.append(texts.AGENT_SETTING_BRIEFING.format(value=value))
             return "\n".join(lines), action_buttons(aid, edit=False)
     return None
+
+
+# --- Model switch notices ---
+
+
+def render_notice(notice: Notice, tz: ZoneInfo) -> str:
+    def reason(kind: str) -> str:
+        return texts.AI_REASONS.get(kind, kind)
+
+    if notice.kind == "switched":
+        text = texts.AI_SWITCHED.format(
+            previous=html.escape(notice.previous),
+            reason=reason(notice.reason),
+            model=html.escape(notice.model),
+        )
+        if notice.retry_in:
+            at = datetime.now(tz) + timedelta(seconds=notice.retry_in)
+            text += texts.AI_SWITCHED_RETRY.format(time=f"{at:%H:%M}")
+        return text
+    if notice.kind == "restored":
+        return texts.AI_RESTORED.format(model=html.escape(notice.model))
+    reasons = ", ".join(
+        f"{html.escape(label)}: {reason(kind)}" for label, kind in notice.reasons.items()
+    )
+    return texts.AI_DOWN.format(reasons=reasons or "—")
+
+
+async def send_notices(bot: Bot, chat_id: int, llm: object, tz: ZoneInfo) -> None:
+    """Send the model notices collected since the last call (no-op for a plain client)."""
+    drain = getattr(llm, "drain_notices", None)
+    if drain is None:
+        return
+    for notice in drain():
+        try:
+            await bot.send_message(chat_id, render_notice(notice, tz))
+        except TelegramAPIError as exc:
+            logger.warning("Could not send a model notice: {}", exc)

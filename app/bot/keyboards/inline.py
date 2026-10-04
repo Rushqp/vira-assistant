@@ -34,7 +34,10 @@ def settings_menu(current_calendar: Calendar, briefing: bool = True) -> InlineKe
             [
                 InlineKeyboardButton(
                     text=texts.BTN_CATEGORIES, callback_data=CatCb(action="list").pack()
-                )
+                ),
+                InlineKeyboardButton(
+                    text=texts.BTN_AI_MODEL, callback_data=SettingsCb(action="ai").pack()
+                ),
             ],
         ]
     )
@@ -481,3 +484,33 @@ def agent_scale(thousand: str, million: str) -> InlineKeyboardMarkup:
             [_act(texts.BTN_CANCEL, "scale", value="cancel")],
         ]
     )
+
+
+# --- AI model ---
+
+
+class AiCb(CallbackData, prefix="ai"):
+    action: str  # auto | pick
+    index: int = 0  # position in the menu's option list (kept in the FSM data)
+
+
+def ai_models_menu(labels: list[str], selected: int | None) -> InlineKeyboardMarkup:
+    """✨ Auto plus one button per model; `selected` is the preferred model's index."""
+    auto = texts.BTN_AI_AUTO
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=(texts.BTN_SELECTED + auto) if selected is None else auto,
+                callback_data=AiCb(action="auto").pack(),
+            )
+        ]
+    ]
+    buttons = [
+        InlineKeyboardButton(
+            text=(texts.BTN_SELECTED + label) if i == selected else label,
+            callback_data=AiCb(action="pick", index=i).pack(),
+        )
+        for i, label in enumerate(labels)
+    ]
+    rows += [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+    return InlineKeyboardMarkup(inline_keyboard=rows)

@@ -1,6 +1,7 @@
 import pytest
 
 from app.bot.handlers import (
+    ai_models,
     assistant,
     categories,
     chat,
@@ -42,6 +43,7 @@ def detach_routers():
     dispatcher."""
     yield
     for module in (
+        ai_models,
         start,
         settings,
         categories,

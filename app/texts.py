@@ -24,6 +24,7 @@ COMMANDS: dict[str, str] = {
     "help": "How to use Vira",
     "menu": "Show the main menu",
     "new": "Start a new chat",
+    "model": "Choose the AI model",
     "chats": "Continue a previous chat",
     "cancel": "Cancel the current action",
     "backup": "Get a database backup",
@@ -52,6 +53,8 @@ HELP = (
     "<b>Commands</b>\n"
     "/menu — show the main menu\n"
     "/new — start a new chat\n"
+    "/chats — continue a previous chat\n"
+    "/model — choose the AI model\n"
     "/cancel — cancel the current action\n"
     "/backup — get a database backup\n"
     "/help — this message"
@@ -280,6 +283,47 @@ AGENT_HINT_REMINDER = "[The user tapped ⏰ New Reminder: this message describes
 AGENT_HINT_EXPENSE = "[The user tapped 💰 Add Expense: this message describes expenses]"
 AGENT_THINKING = "💭"
 BTN_ALERT_ADD = "＋ {label}"
+
+# --- AI model (⚙️ Settings → 🤖 AI model, /model) ---
+AI_TITLE = "🤖 <b>AI model</b>"
+AI_MODE_AUTO = "Mode: <b>Auto</b>: the best available model answers"
+AI_MODE_PREFERRED = "Mode: <b>{model}</b> first, the others are backups"
+AI_ANSWERING = "Answering now: <b>{model}</b>"
+AI_ORDER = "<b>Order</b>"
+AI_STATUS_READY = "{n}. ✅ {model}"
+AI_STATUS_PAUSED = "{n}. ⏸ {model} — {reason}, retry at {time}"
+AI_STATUS_CHAT_ONLY = " <i>(chat only)</i>"
+AI_NO_KEY = "<i>More free models: add {keys} in .env</i>"
+AI_NONE = (
+    "🤖 No AI model is configured, so Vira works in basic (rule-based) mode.\n"
+    "Add a free key (e.g. GEMINI_API_KEY) in .env — see the README."
+)
+AI_HELP = (
+    "<i>Pick a model to use it first. If it isn't available, the next one answers and you "
+    "get a notice.</i>"
+)
+AI_CHOSEN = "✅ {model} answers first now"
+AI_AUTO_CHOSEN = "✅ Auto: the best available model answers"
+AI_PICK_FAILED = "This model can't be used (missing key?)."
+AI_MENU_EXPIRED = "This menu is out of date; here is a fresh one."
+BTN_AI_MODEL = "🤖 AI model"
+BTN_AI_AUTO = "✨ Auto"
+AI_REASONS = {
+    "rate_limited": "free quota used up",
+    "unreachable": "not reachable",
+    "model_missing": "model not found",
+    "auth": "API key rejected",
+    "failed": "error",
+    "paused": "paused",
+    "unavailable": "unavailable",
+}
+AI_SWITCHED = "🔁 <b>{previous}</b> isn't available ({reason}), so <b>{model}</b> answered."
+AI_SWITCHED_RETRY = " I'll try it again at {time}."
+AI_RESTORED = "✅ <b>{model}</b> is available again and answering."
+AI_DOWN = (
+    "⚠️ No AI model can handle requests right now ({reasons}). Vira works in basic mode "
+    "until one is back."
+)
 
 # --- Settings ---
 SETTINGS = (

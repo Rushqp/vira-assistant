@@ -5,6 +5,7 @@ every provider configured in .env, one provider at a time, each case on a fresh 
 checks what actually happened in the database.
 
     python scripts/eval_agent.py                 # all configured providers
+    python scripts/eval_agent.py --all           # every model of the 🤖 AI model menu
     python scripts/eval_agent.py --provider local --case doctor
     docker compose exec bot python scripts/eval_agent.py
 
@@ -33,7 +34,7 @@ from app.agent.tools import ToolContext, build_registry
 from app.config import Calendar, Settings, get_settings
 from app.db.models import Expense, Reminder
 from app.db.session import create_engine, create_sessionmaker, run_migrations
-from app.llm.providers import ProviderChain, build_clients
+from app.llm.providers import ProviderChain, build_clients, make_client, model_options
 from app.services.expenses import ExpenseService
 from app.services.reminders import ReminderService, from_utc
 from app.services.settings import SettingsService
@@ -287,12 +288,24 @@ async def run_case(case: Case, client, config: Settings) -> tuple[bool, str, flo
 
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--provider", help="only this provider (gemini, groq, github, local)")
+    parser.add_argument(
+        "--provider", help="only this provider (gemini, groq, mistral, github, openrouter, local)"
+    )
     parser.add_argument("--case", help="only cases whose id contains this text")
+    parser.add_argument(
+        "--all", action="store_true", help="every model of the menu, not only the configured ones"
+    )
     args = parser.parse_args()
 
     config = get_settings()
-    clients = [c for c in build_clients(config) if c.supports_tools]
+    if args.all:
+        chain = ProviderChain.from_settings(config)
+        local = await chain.local_models()
+        await chain.close()
+        made = [make_client(config, p, m) for p, m in model_options(config, local)]
+        clients = [c for c in made if c is not None and c.supports_tools]
+    else:
+        clients = [c for c in build_clients(config) if c.supports_tools]
     if args.provider:
         clients = [c for c in clients if c.name == args.provider]
     if not clients:
@@ -300,7 +313,7 @@ async def main() -> None:
     cases = [c for c in CASES if not args.case or args.case in c.id]
 
     for client in clients:
-        print(f"\n== {client.name}: {client.model}")
+        print(f"\n== {client.label} ({client.model})")
         passed, times = 0, []
         for case in cases:
             ok, detail, seconds = await run_case(case, client, config)

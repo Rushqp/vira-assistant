@@ -20,12 +20,14 @@ from app.bot.handlers import build_router
 from app.bot.middlewares.db import DbSessionMiddleware
 from app.bot.middlewares.logging import LoggingMiddleware
 from app.bot.middlewares.menu_reset import MenuResetMiddleware
+from app.bot.middlewares.notices import ModelNoticeMiddleware
 from app.bot.middlewares.owner_only import OwnerOnlyMiddleware
 from app.config import Settings, get_settings
 from app.db.session import create_engine, create_sessionmaker, run_migrations
 from app.llm.providers import ProviderChain
 from app.scheduler.jobs import catch_up_briefing
 from app.scheduler.setup import create_scheduler
+from app.services.settings import SettingsService
 
 
 class _InterceptHandler(logging.Handler):
@@ -52,8 +54,17 @@ def build_dispatcher(config: Settings, sessionmaker, llm: ProviderChain) -> Disp
     dp.update.outer_middleware(LoggingMiddleware())
     dp.message.outer_middleware(MenuResetMiddleware())
     dp.update.middleware(DbSessionMiddleware(sessionmaker, config, llm))
+    dp.update.middleware(ModelNoticeMiddleware(llm, config))
     dp.include_router(build_router())
     return dp
+
+
+async def apply_saved_model(llm: ProviderChain, sessionmaker, config: Settings) -> None:
+    """Use the model chosen in 🤖 AI model (saved in the database) first again."""
+    async with sessionmaker() as session:
+        saved = await SettingsService(session, config.default_calendar).get_ai_model()
+    if saved and llm.prefer(*saved) is None:
+        logger.warning("The chosen AI model {} can't be used now: Auto order", "/".join(saved))
 
 
 async def run_bot(config: Settings) -> None:
@@ -67,6 +78,7 @@ async def run_bot(config: Settings) -> None:
         session=session,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
+    await apply_saved_model(llm, sessionmaker, config)
     dp = build_dispatcher(config, sessionmaker, llm)
     scheduler = create_scheduler(bot, sessionmaker, config)
 

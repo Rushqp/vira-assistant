@@ -11,6 +11,7 @@ from app.db.models import Setting
 KEY_CALENDAR = "calendar"
 KEY_BRIEFING = "morning_briefing"  # "on" | "off"
 KEY_BRIEFING_LAST = "morning_briefing_last"  # ISO date of the last briefing sent
+KEY_AI_MODEL = "ai_model"  # "auto" or "provider|model"
 
 
 class SettingsService:
@@ -50,6 +51,19 @@ class SettingsService:
         new = Calendar.GREGORIAN if current == Calendar.JALALI else Calendar.JALALI
         await self.set_calendar(new)
         return new
+
+    # --- AI model ---
+
+    async def get_ai_model(self) -> tuple[str, str] | None:
+        """The model the user chose in 🤖 AI model, or None for Auto."""
+        value = await self.get(KEY_AI_MODEL)
+        if not value or "|" not in value:
+            return None
+        provider, model = value.split("|", 1)
+        return provider, model
+
+    async def set_ai_model(self, provider: str | None, model: str | None = None) -> None:
+        await self.set(KEY_AI_MODEL, f"{provider}|{model}" if provider and model else "auto")
 
     # --- Morning briefing ---
 

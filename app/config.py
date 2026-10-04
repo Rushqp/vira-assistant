@@ -10,6 +10,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.parsers.datetime_parser import DayTimes
+from app.llm.models import DEFAULT_MODELS
 
 
 class Profile(StrEnum):
@@ -39,12 +40,8 @@ PROFILE_DEFAULTS: dict[Profile, tuple[str, str]] = {
     Profile.REMOTE: ("", "base"),
 }
 
-# Default models of the free API providers (override with GEMINI_MODEL, GROQ_MODEL, GITHUB_MODEL).
-API_DEFAULT_MODELS = {
-    "gemini": "gemini-flash-latest",
-    "groq": "openai/gpt-oss-120b",
-    "github": "openai/gpt-4.1-mini",
-}
+# Default models of the free API providers (override with GEMINI_MODEL, GROQ_MODEL, …).
+API_DEFAULT_MODELS = DEFAULT_MODELS
 
 
 class Settings(BaseSettings):
@@ -63,13 +60,17 @@ class Settings(BaseSettings):
     # AI: providers are tried in this order; those without a key are skipped.
     # "local" = LLM_BASE_URL / LLM_MODEL (Ollama by default, or any OpenAI-compatible API).
     profile: Profile = Profile.STANDARD
-    llm_providers: str = "gemini,groq,github,local"
+    llm_providers: str = "gemini,groq,mistral,github,openrouter,local"
     gemini_api_key: SecretStr | None = None
     gemini_model: str | None = None
     groq_api_key: SecretStr | None = None
     groq_model: str | None = None
+    mistral_api_key: SecretStr | None = None
+    mistral_model: str | None = None
     github_token: SecretStr | None = None
     github_model: str | None = None
+    openrouter_api_key: SecretStr | None = None
+    openrouter_model: str | None = None
     llm_base_url: str = "http://ollama:11434/v1"
     llm_model: str | None = None
     llm_api_key: SecretStr = SecretStr("ollama")
@@ -105,6 +106,10 @@ class Settings(BaseSettings):
         "groq_model",
         "github_token",
         "github_model",
+        "mistral_api_key",
+        "mistral_model",
+        "openrouter_api_key",
+        "openrouter_model",
         mode="before",
     )
     @classmethod
@@ -126,8 +131,8 @@ class Settings(BaseSettings):
     def _remote_needs_a_brain(self) -> "Settings":
         if self.profile == Profile.REMOTE and not self.llm_model and not self.api_providers:
             raise ValueError(
-                "PROFILE=remote needs an API key (GEMINI_API_KEY, GROQ_API_KEY, GITHUB_TOKEN) "
-                "or LLM_MODEL for a custom endpoint"
+                "PROFILE=remote needs an API key (GEMINI_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY, "
+                "GITHUB_TOKEN, OPENROUTER_API_KEY) or LLM_MODEL for a custom endpoint"
             )
         return self
 
@@ -135,12 +140,20 @@ class Settings(BaseSettings):
         secret = {
             "gemini": self.gemini_api_key,
             "groq": self.groq_api_key,
+            "mistral": self.mistral_api_key,
             "github": self.github_token,
+            "openrouter": self.openrouter_api_key,
         }.get(name)
         return secret.get_secret_value() if secret else None
 
     def provider_model(self, name: str) -> str:
-        chosen = {"gemini": self.gemini_model, "groq": self.groq_model, "github": self.github_model}
+        chosen = {
+            "gemini": self.gemini_model,
+            "groq": self.groq_model,
+            "mistral": self.mistral_model,
+            "github": self.github_model,
+            "openrouter": self.openrouter_model,
+        }
         return chosen.get(name) or API_DEFAULT_MODELS[name]
 
     @property

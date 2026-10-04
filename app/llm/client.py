@@ -13,9 +13,11 @@ from typing import Any, Literal, Protocol
 import openai
 from loguru import logger
 
+from app.llm.models import model_label
+
 # Plain dicts in OpenAI chat format: system / user / assistant (+ tool_calls) / tool.
 ChatMessage = dict[str, Any]
-ErrorKind = Literal["unreachable", "model_missing", "rate_limited", "failed"]
+ErrorKind = Literal["unreachable", "model_missing", "rate_limited", "auth", "failed"]
 
 
 class LLMError(Exception):
@@ -106,6 +108,8 @@ def _translate(exc: Exception, model: str) -> LLMError:
         return LLMError("model_missing", model)
     if isinstance(exc, openai.RateLimitError):
         return LLMError("rate_limited", str(exc), _retry_after(exc))
+    if isinstance(exc, openai.AuthenticationError | openai.PermissionDeniedError):
+        return LLMError("auth", str(exc))
     if isinstance(exc, openai.APIStatusError) and exc.status_code >= 500:
         return LLMError("unreachable", str(exc))
     return LLMError("failed", str(exc))
@@ -125,6 +129,7 @@ class LLMClient:
         stream_tools: bool = False,
         reasoning_effort: str | None = None,
         system_suffix: str = "",
+        default_headers: dict[str, str] | None = None,
     ) -> None:
         self.name = name
         self.model = model
@@ -134,8 +139,21 @@ class LLMClient:
         self.reasoning_effort = reasoning_effort
         self.system_suffix = system_suffix  # e.g. "/no_think" for Qwen3
         self._client = openai.AsyncOpenAI(
-            base_url=base_url, api_key=api_key, timeout=timeout, max_retries=0
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout,
+            max_retries=0,
+            default_headers=default_headers,
         )
+
+    @property
+    def id(self) -> str:
+        """Unique per provider + model (health and preference are tracked per id)."""
+        return f"{self.name}:{self.model}"
+
+    @property
+    def label(self) -> str:
+        return model_label(self.name, self.model)
 
     def _prepare(self, messages: list[ChatMessage]) -> list[ChatMessage]:
         if not self.system_suffix or not messages or messages[0].get("role") != "system":
@@ -276,6 +294,14 @@ class LLMClient:
         if not isinstance(data, dict):
             raise LLMError("failed", "JSON is not an object")
         return data
+
+    async def list_models(self) -> list[str]:
+        """Model ids the endpoint offers ([] if it can't be listed)."""
+        try:
+            return sorted(m.id.removeprefix("models/") async for m in self._client.models.list())
+        except openai.OpenAIError as exc:
+            logger.info("Could not list models of {}: {}", self.name, exc)
+            return []
 
     async def check(self) -> bool:
         """Log whether the endpoint is reachable and the model is available. Never raises."""

@@ -22,13 +22,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
     offers buttons for earlier alerts
   - A claim of an action without a tool call gets one corrective retry
   - The model never computes dates: each message carries a dates table in both calendars
-- 🔀 **Free AI providers with failover** (`app/llm/providers.py`): Gemini → Groq → GitHub Models →
-  local model, in `LLM_PROVIDERS` order; providers that fail or hit their free quota are paused
-  (`Retry-After`, growing back-off) and the next one answers
+- 🔀 **Free AI models with failover** (`app/llm/providers.py`, catalog in `app/llm/models.py`):
+  Gemini → Groq → Mistral → GitHub Models → OpenRouter → local model, in `LLM_PROVIDERS` order.
+  A model that fails is paused and the next one answers: free quota used up waits for
+  `Retry-After` or 1 min, 2 min, 4 min … (up to 30 min); a rejected key or unknown model 1 hour;
+  other errors 30 s, 1 min … (up to 10 min)
+  - Free models: Gemini Flash / Flash-Lite; GPT-OSS 120B / 20B, Llama 3.3 70B, Qwen 3.8 27B (Groq);
+    Mistral Small / Medium / Large; GPT-4.1 mini, GPT-4.1, GPT-4o mini, GPT-5 mini (GitHub Models);
+    OpenRouter's free router; every model pulled in the local Ollama
+- 🤖 **AI model** screen (⚙️ Settings → 🤖 AI model, or `/model`): the order, the model answering
+  now, paused models with the reason and the time they are tried again, and the keys that would
+  add more free models. Choosing a model puts it first (the others stay as backups); ✨ Auto goes
+  back to the configured order. The choice is saved and applied again after a restart
+- 🔁 **Model notices**: when a model stops answering (free quota used up, key rejected, not
+  reachable), Vira says which one answered instead and when the first one is tried again; it also
+  tells when the model is back, and when no model is left and it works in basic mode. One notice
+  per change (an outage is reported once, not on every message)
 - New settings: `LLM_PROVIDERS`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `GROQ_API_KEY`, `GROQ_MODEL`,
-  `GITHUB_TOKEN`, `GITHUB_MODEL`, `LOCAL_TOOLS`
+  `MISTRAL_API_KEY`, `MISTRAL_MODEL`, `GITHUB_TOKEN`, `GITHUB_MODEL`, `OPENROUTER_API_KEY`,
+  `OPENROUTER_MODEL`, `LOCAL_TOOLS`
 - `scripts/eval_agent.py`: accuracy and latency of each configured model on real Persian / English
-  cases (including reported failures), to choose models per hardware profile on the real server
+  cases (including reported failures), to choose models per hardware profile on the real server;
+  `--all` measures every model of the 🤖 AI model menu
 - 💰 **Expenses**: several items in one message, quantities («۱۰ لیتر»), past days («دیروز»,
   «شنبه»), amount parser («۲ و نیم میلیون», «دو میلیون و پونصد» = 2,500,000, `100k`, `1.2m`,
   toman / rial)
@@ -44,7 +59,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   `lite` keeps `gemma3:1b` for chat only
 - `PROFILE=remote` works with just an API key (or a custom `LLM_MODEL` as before)
 - The v0.3 rule-based understanding is kept as the fallback when no tool-capable model is reachable
-- ⚙️ Settings shows the AI provider chain
+- ⚙️ Settings shows the AI model order (the chosen model first)
 
 ### Fixed
 - Reported: «یک یاد اوری تنظیم کن برای ۵ دقیقه دیگه …» went to the chat

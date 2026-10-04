@@ -23,7 +23,13 @@ from app.agent.actions import ActionLog
 from app.agent.core import Agent, AgentUnavailable
 from app.agent.tools import Card, ToolContext
 from app.agent.tools.expenses import save_expense_draft
-from app.bot.agent_ui import UiDeps, render_card, render_reminder, render_saved_expenses
+from app.bot.agent_ui import (
+    UiDeps,
+    render_card,
+    render_reminder,
+    render_saved_expenses,
+    send_notices,
+)
 from app.bot.keyboards.inline import (
     ActCb,
     agent_scale,
@@ -149,6 +155,8 @@ async def run_agent(deps: Deps, text: str, hint: str = "") -> None:
             )
         except AgentUnavailable as exc:
             logger.info("Agent unavailable ({}): rule-based fallback", exc)
+            # Say why the answer is basic before it comes (e.g. "free quota used up").
+            await send_notices(message.bot, message.chat.id, deps.llm, deps.config.timezone)
             await fallback(deps, text, hint)
             return
         except LLMError as exc:  # failed after part of the answer was shown

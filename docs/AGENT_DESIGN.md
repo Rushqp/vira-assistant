@@ -42,15 +42,17 @@ phrasing, typos, several requests in one message, and references to earlier mess
 
 **Free LLM APIs** (all OpenAI-compatible, all support tool calling):
 
-| Provider | Free model used | Free quota (approx.) | Notes |
+| Provider | Default model (others in the menu) | Free quota (approx.) | Notes |
 |---|---|---|---|
-| Google Gemini | `gemini-flash-latest` | low thousands req/day (Flash tier), 1M context | Best Persian quality among free options; reasoning can't be fully disabled on 3.x → `reasoning_effort=low` |
-| Groq | `openai/gpt-oss-120b` | 30 RPM, 1 000 RPD, 8 000 TPM | Very fast; tokens-per-minute is the real limit → compact prompts |
-| GitHub Models | `openai/gpt-4.1-mini` | 15 RPM, 150 RPD | Needs only a GitHub token |
-| OpenRouter `:free` models | (user-chosen) | 50 req/day | Usable through the generic "custom" provider |
+| Google Gemini | `gemini-flash-latest` (`gemini-flash-lite-latest`) | low thousands req/day (Flash tier), 1M context | Best Persian quality among free options; reasoning can't be fully disabled on 3.x → `reasoning_effort=low` |
+| Groq | `openai/gpt-oss-120b` (`gpt-oss-20b`, `llama-3.3-70b-versatile`, `qwen/qwen3.8-27b`) | 30 RPM, 1 000 RPD, 8 000 TPM | Very fast; tokens-per-minute is the real limit → compact prompts |
+| Mistral | `mistral-small-latest` (`medium`, `large`) | free *Experiment* plan, low RPS | Good multilingual quality; native tool calling |
+| GitHub Models | `openai/gpt-4.1-mini` (`gpt-4.1`, `gpt-4o-mini`, `gpt-5-mini`) | 15 RPM, 150 RPD (lower for larger models) | Needs only a GitHub token with *Models* access |
+| OpenRouter | `openrouter/free` | ~50 req/day without credits | A router that picks a free model supporting the request's features (tools) |
+| Cerebras, Cohere | — | — | Not used: no permanent free tier / non-commercial trial keys |
 
-Quotas change often, so providers and models are configuration, not code, and the chain falls
-through to the next provider when one is exhausted.
+Quotas change often, so providers and models are configuration, not code (`app/llm/models.py` is
+only the menu's catalog), and the chain falls through to the next model when one is exhausted.
 
 **Local models with native tool calling** (Ollama): Qwen3 (0.6B–235B, native tool template,
 optional thinking) is the common recommendation for local agents; `qwen3:4b` for ~4 GB and
@@ -82,8 +84,10 @@ Telegram update
                      │            + recent transcript (with [✓ …] action notes)
                      │            + [context: now, date table fa/en, settings] + user text
                      ▼
-                  ProviderChain.respond(messages, tools)  ── gemini → groq → github → local
-                     │        (cooldown on 429/5xx/timeout/empty; skips providers without tools)
+                  ProviderChain.respond(messages, tools)  ── [chosen model] → gemini → groq
+                     │        → mistral → github → openrouter → local
+                     │        (cooldown on 429/5xx/timeout/empty; skips models without tools;
+                     │         a change of the answering model becomes a notice to the user)
                      ▼
               ┌── tool calls? ──no──► final text (streamed when the provider streams)
               │yes
@@ -180,8 +184,17 @@ defaults can be benchmarked on the real server.
 
 ## 9. Reliability
 
-- Provider errors (connection, timeout, 429, 5xx, invalid/empty response) → provider cooldown
-  (honours `Retry-After`, otherwise 60 s, growing on repeated failures) → next provider.
+- Model errors (connection, timeout, 429, 5xx, invalid key, unknown model, empty response) → the
+  model is paused and the next one answers. Free quota used up (429): `Retry-After`, otherwise
+  1 min doubling up to 30 min; invalid key / unknown model: 1 hour; anything else: 30 s doubling
+  up to 10 min. Cooldowns are per model, so another model of the same provider can still answer.
+- The user can put any model first (🤖 AI model, `/model`; saved in the `settings` table and
+  applied at startup). The configured order stays behind it as backup; ✨ Auto removes the choice.
+- Every change of the answering model is a `Notice` (`switched` with the reason and the time the
+  model is tried again, `restored`, `down`), sent after the turn by a middleware; `down` is sent
+  before the rule-based fallback so the user knows why the answer is basic. Each change is
+  reported once: an outage is not repeated on every message, and plain-chat calls made during an
+  outage don't add notices (they do in a chat-only setup, which has no agent turns).
 - Mid-turn failure: actions already executed are still shown (with Undo); only the final sentence
   is missing.
 - No tool-capable provider → rule pipeline (v0.4 behaviour) + plain chat if any model can chat.

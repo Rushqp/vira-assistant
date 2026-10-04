@@ -163,15 +163,15 @@ class Env:
         raise AssertionError(f"no button with {text_part!r}")
 
 
-def make_env(config, sessionmaker) -> Env:
-    """A dispatcher wired to a recording fake Telegram session and a fake LLM."""
+def make_env(config, sessionmaker, llm=None) -> Env:
+    """A dispatcher wired to a recording fake Telegram session and a fake LLM (or `llm`)."""
     from app.main import build_dispatcher
 
     session = RecordingSession()
     bot = Bot(
         "123456:TEST", session=session, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
-    llm = FakeLLM("Hi! How can I help?")
+    llm = llm or FakeLLM("Hi! How can I help?")
     dp = build_dispatcher(config, sessionmaker, llm)  # type: ignore[arg-type]
 
     async def send(text: str, user_id: int = OWNER_ID) -> None:

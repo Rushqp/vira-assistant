@@ -3,6 +3,7 @@
 from aiogram import Router
 
 from app.bot.handlers import (
+    ai_models,
     assistant,
     categories,
     chat,
@@ -25,6 +26,7 @@ def build_router() -> Router:
     router.include_routers(
         start.router,
         settings.router,
+        ai_models.router,
         categories.router,
         menu.router,
         chats.router,

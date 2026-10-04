@@ -5,22 +5,34 @@ import pytest
 from app.config import Settings
 from app.llm.client import LLMError, LLMResponse
 from app.llm.providers import (
+    COOLDOWN_BROKEN,
     COOLDOWN_RATE_LIMIT,
+    Notice,
     ProviderChain,
     build_clients,
     describe_providers,
     local_supports_tools,
+    missing_providers,
+    model_options,
 )
 
 
 class StubClient:
-    def __init__(self, name, errors=None, supports_tools=True, answer="ok"):
+    def __init__(self, name, errors=None, supports_tools=True, answer="ok", model=None):
         self.name = name
-        self.model = f"{name}-model"
+        self.model = model or f"{name}-model"
         self.supports_tools = supports_tools
         self.errors = list(errors or [])
         self.answer = answer
         self.calls = 0
+
+    @property
+    def id(self):
+        return f"{self.name}:{self.model}"
+
+    @property
+    def label(self):
+        return self.name.upper()
 
     def _maybe_fail(self):
         self.calls += 1
@@ -201,9 +213,161 @@ def test_local_tool_support(model, expected):
 
 
 def test_describe_providers():
-    assert (
-        describe_providers(settings(gemini_api_key="g")) == "gemini-flash-latest → qwen3:4b (local)"
+    assert describe_providers(settings(gemini_api_key="g")) == (
+        "Gemini Flash · Gemini → qwen3:4b · Local"
     )
-    assert (
-        describe_providers(settings(profile="remote", gemini_api_key="g")) == "gemini-flash-latest"
+    assert describe_providers(settings(profile="remote", gemini_api_key="g")) == (
+        "Gemini Flash · Gemini"
     )
+
+
+# --- More providers ---
+
+
+def test_mistral_and_openrouter_presets():
+    clients = build_clients(
+        settings(mistral_api_key="m", openrouter_api_key="o", llm_providers="mistral,openrouter")
+    )
+    assert [(c.name, c.model) for c in clients] == [
+        ("mistral", "mistral-small-latest"),
+        ("openrouter", "openrouter/free"),
+    ]
+    assert clients[1]._client.default_headers["X-Title"] == "Vira Assistant"
+    assert [c.label for c in clients] == ["Mistral Small · Mistral", "OpenRouter Free · OpenRouter"]
+
+
+def test_model_options_and_missing_keys():
+    config = settings(groq_api_key="q", groq_model="custom-model")
+    options = model_options(config, local_models=["qwen3:4b", "llama3.2:3b", "nomic-embed-text"])
+    assert options[0] == ("groq", "custom-model")  # the .env model comes first
+    assert ("groq", "openai/gpt-oss-20b") in options
+    assert ("local", "llama3.2:3b") in options and ("local", "nomic-embed-text") not in options
+    assert not any(p == "gemini" for p, _ in options)
+    assert missing_providers(config) == ["gemini", "mistral", "github", "openrouter"]
+
+
+# --- Preference ---
+
+
+def test_preferred_model_goes_first_and_auto_restores_the_order():
+    a, b = StubClient("a"), StubClient("b")
+    created = []
+
+    def factory(provider, model):
+        client = StubClient(provider, model=model)
+        created.append(client)
+        return client
+
+    chain = ProviderChain([a, b], factory=factory)  # type: ignore[list-item]
+    chain.prefer("b", "b-model")
+    assert [c.name for c in chain.clients] == ["b", "a"]  # the existing client moves first
+    chain.prefer("a", "other-model")
+    assert [c.id for c in chain.clients] == ["a:other-model", "a:a-model", "b:b-model"]
+    assert chain.preference == ("a", "other-model") and created
+    chain.prefer(None)
+    assert [c.name for c in chain.clients] == ["a", "b"] and chain.preference is None
+
+
+# --- Notices ---
+
+
+async def test_switch_and_restore_notices():
+    clock = Clock()
+    a = StubClient("a", errors=[LLMError("rate_limited")])
+    b = StubClient("b")
+    chain = ProviderChain([a, b], clock=clock)  # type: ignore[list-item]
+
+    await chain.respond([], tools=[{}])  # a fails → b answers
+    [notice] = chain.drain_notices()
+    assert (notice.kind, notice.previous, notice.model, notice.reason) == (
+        "switched",
+        "A",
+        "B",
+        "rate_limited",
+    )
+    assert notice.retry_in == pytest.approx(COOLDOWN_RATE_LIMIT)
+
+    await chain.respond([], tools=[{}])  # still b: nothing new
+    assert chain.drain_notices() == []
+
+    clock.now += COOLDOWN_RATE_LIMIT + 1
+    await chain.respond([], tools=[{}])  # a is back
+    [notice] = chain.drain_notices()
+    assert (notice.kind, notice.model) == ("restored", "A")
+
+
+async def test_down_notice_once_then_restored():
+    clock = Clock()
+    a = StubClient("a", errors=[LLMError("unreachable"), LLMError("unreachable")])
+    chain = ProviderChain([a], clock=clock)  # type: ignore[list-item]
+    with pytest.raises(LLMError):
+        await chain.respond([], tools=[{}])
+    with pytest.raises(LLMError):
+        await chain.respond([], tools=[{}])  # paused: still down, no second notice
+    [notice] = chain.drain_notices()
+    assert notice.kind == "down" and notice.reasons == {"A": "unreachable"}
+
+    clock.now += 1000
+    a.errors = []
+    await chain.respond([], tools=[{}])
+    [notice] = chain.drain_notices()
+    assert (notice.kind, notice.model) == ("restored", "A")
+
+
+async def test_chat_only_setups_do_not_report_outages():
+    chain = ProviderChain([StubClient("local", supports_tools=False)])  # type: ignore[list-item]
+    with pytest.raises(LLMError):
+        await chain.respond([], tools=[{}])
+    assert chain.drain_notices() == []
+
+
+async def test_plain_chat_reports_only_in_chat_only_setups():
+    # With a tool-capable model, plain chat only runs during an outage the agent turn already
+    # reported: no second notice.
+    chain = ProviderChain([StubClient("a", errors=[LLMError("unreachable")]), StubClient("b")])  # type: ignore[list-item]
+    assert await chain.chat([]) == "ok"
+    assert chain.drain_notices() == []
+    # A chat-only setup has no agent turns, so plain chat reports.
+    local = StubClient("local", supports_tools=False, errors=[LLMError("unreachable")])
+    chain = ProviderChain([local])  # type: ignore[list-item]
+    with pytest.raises(LLMError):
+        await chain.chat([])
+    [notice] = chain.drain_notices()
+    assert notice.kind == "down" and notice.reasons == {"LOCAL": "unreachable"}
+
+
+async def test_preference_change_starts_fresh():
+    a, b = StubClient("a"), StubClient("b")
+    chain = ProviderChain([a, b])  # type: ignore[list-item]
+    await chain.respond([], tools=[{}])
+    chain.prefer("b", "b-model")
+    await chain.respond([], tools=[{}])
+    assert chain.drain_notices() == []  # choosing a model is not an outage
+
+
+def test_drain_keeps_one_notice_per_kind():
+    chain = ProviderChain([])
+    chain.notices = [Notice("down"), Notice("down"), Notice("restored", model="X")]
+    assert [n.kind for n in chain.drain_notices()] == ["down", "restored"]
+    assert chain.drain_notices() == []
+
+
+# --- Cooldowns ---
+
+
+async def test_cooldowns_by_error_kind():
+    clock = Clock()
+    a = StubClient(
+        "a", errors=[LLMError("rate_limited"), LLMError("rate_limited"), LLMError("auth")]
+    )
+    chain = ProviderChain([a, StubClient("b")], clock=clock)  # type: ignore[list-item]
+    await chain.respond([], tools=[{}])
+    assert chain.status()[0].retry_in == pytest.approx(60)
+    clock.now += 61
+    await chain.respond([], tools=[{}])
+    assert chain.status()[0].retry_in == pytest.approx(120)  # quota again: longer pause
+    clock.now += 121
+    await chain.respond([], tools=[{}])
+    status = chain.status()[0]
+    assert status.reason == "auth" and status.retry_in == pytest.approx(COOLDOWN_BROKEN)
+    assert chain.status()[1].answering

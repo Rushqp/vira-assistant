@@ -16,6 +16,8 @@ class ScriptedModel:
     name = "scripted"
     model = "scripted"
     supports_tools = True
+    id = "scripted:scripted"
+    label = "Scripted"
 
     def __init__(self, steps):
         self.steps = list(steps)

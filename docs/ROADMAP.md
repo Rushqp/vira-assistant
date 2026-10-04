@@ -29,7 +29,7 @@ Dates are shown in **Gregorian or Jalali (Shamsi)** — switchable by the user i
 |---|---|
 | Hosting | Anywhere; the host's network is assumed to reach Telegram (optional proxy in `.env`) |
 | Deployment | **Docker Compose** |
-| AI | **Free API providers first** (Gemini → Groq → GitHub Models), **local Ollama** as fallback; all OpenAI-compatible, order in `.env` (decided in v0.4) |
+| AI | **Free API providers first** (Gemini → Groq → Mistral → GitHub Models → OpenRouter), **local Ollama** as fallback; all OpenAI-compatible, order in `.env`; the model can be switched in the bot (🤖 AI model) and the user is told when the answering model changes (decided in v0.4) |
 | Hardware | **Selectable profiles**: `lite` / `standard` / `full` (+ `remote`) |
 | Language processing | **AI agent with typed tools** (v0.4); deterministic parsers validate amounts/dates and remain the fallback when no model is reachable — see `docs/AGENT_DESIGN.md` |
 | Users | **Single-user** (only `OWNER_ID` is allowed) |
@@ -61,7 +61,7 @@ Dates are shown in **Gregorian or Jalali (Shamsi)** — switchable by the user i
 │  │  agent: system prompt + transcript + [dates table fa/en] + text   │   │
 │  │      │                                                            │   │
 │  │      ▼                                                            │   │
-│  │  provider chain ── Gemini → Groq → GitHub Models → local ─────────┼─► free APIs
+│  │  provider chain ── Gemini → Groq → Mistral → GitHub → … → local ──┼─► free APIs
 │  │      │                         (failover, cooldowns)       └──────┼─► ollama
 │  │      ▼                                                            │   │
 │  │  typed tools ── validated by deterministic parsers (dates, amounts)│  │
@@ -275,20 +275,21 @@ vira-assistant/
 │   │   ├── context.py          # per-message dates table (Gregorian = Jalali)
 │   │   └── prompt.py           # system prompt
 │   ├── bot/
-│   │   ├── handlers/           # assistant (free text → agent), start, menu, chat, chats, reminders, expenses, reports, categories, settings, fallback (+ notes, voice later)
-│   │   ├── agent_ui.py         # result cards with Undo / Edit
+│   │   ├── handlers/           # assistant (free text → agent), start, menu, chat, chats, reminders, expenses, reports, categories, settings, ai_models, fallback (+ notes, voice later)
+│   │   ├── agent_ui.py         # result cards with Undo / Edit, model switch notices
 │   │   ├── keyboards/          # reply.py, inline.py
 │   │   ├── views.py            # message rendering (reminder cards, notifications, briefing, reports)
 │   │   ├── streaming.py        # streamed LLM answers via message edits
 │   │   ├── states.py           # FSM states
-│   │   └── middlewares/        # owner_only.py, logging.py, db.py, menu_reset.py
+│   │   └── middlewares/        # owner_only.py, logging.py, db.py, menu_reset.py, notices.py
 │   ├── core/
 │   │   ├── normalizer.py       # fa/en digits, number words, ZWNJ
 │   │   ├── textmatch.py        # fuzzy references to stored items
 │   │   └── parsers/            # datetime_parser.py, rules.py, amount_parser.py, expense_rules.py (fa + en)
 │   ├── llm/
 │   │   ├── client.py           # one OpenAI-compatible endpoint (tools, streaming)
-│   │   ├── providers.py        # failover chain of free APIs + local model
+│   │   ├── models.py           # catalog of free models (friendly names)
+│   │   ├── providers.py        # failover chain of free APIs + local model, chosen model, notices
 │   │   ├── prompts/            # helper prompts (bilingual)
 │   │   └── schemas.py          # JSON schemas for structured output
 │   ├── stt/whisper.py          # v0.6
@@ -363,7 +364,7 @@ TELEGRAM_PROXY=             # optional: socks5://host:port
 | **v0.1.0** | Project skeleton, Docker Compose, `/start`, English button menu, owner middleware, SQLite + Alembic, settings (calendar toggle), CI | `docker compose up` starts the bot and the menu appears |
 | **v0.2.0** | Ollama service + profiles, LLM client, chat with short memory + New Chat | Simple Persian and English questions get answers; model switchable via `.env` |
 | **v0.3.0** | Normalizer + fa/en date/time parser (both calendars), reminders (create/list/delete/repeat/snooze), scheduler, morning briefing (reminders), previous chats | "Doctor tomorrow at 2, remind me in the morning" is saved and delivered correctly |
-| **v0.4.0** | **AI agent with tools + free provider chain**, amount parser, expenses (multi-item), categories, daily/monthly reports | The groceries + fuel example creates two correct records |
+| **v0.4.0** | **AI agent with tools + free provider chain** (model switching in the bot, switch notices), amount parser, expenses (multi-item), categories, daily/monthly reports | The groceries + fuel example creates two correct records |
 | **v0.5.0** | Excel/CSV export, nightly report, morning briefing | Current month's Excel file is received |
 | **v0.6.0** | Voice → text (faster-whisper) | Persian and English voice is processed like text |
 | **v0.7.0** | Notes, to-dos, settings, backup | All menu buttons functional |
