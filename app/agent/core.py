@@ -22,16 +22,21 @@ from app.llm.client import ChatMessage, LLMError
 MAX_ROUNDS = 4
 
 # "I've saved it / it was cancelled / ثبت شد / کنسل کردم ..." said without calling any tool.
-_DONE_EN = r"(?:saved|recorded|added|created|set|scheduled|cancel+ed|deleted|removed|updated)"
+_DONE_EN = (
+    r"(?:saved|recorded|added|created|set|scheduled|cancel+ed|deleted|removed|updated"
+    r"|sent|exported|attached)"
+)
 # Only things the assistant manages: "The Eiffel Tower was created in 1889" is not a claim.
 _THINGS = (
-    r"(?:it|this|that|they|reminders?|expenses?|alarms?"
-    r"|(?:your|the)\s+(?:reminders?|expenses?|alarms?|items?|records?|settings?))"
+    r"(?:it|this|that|they|reminders?|expenses?|alarms?|files?|spreadsheets?"
+    r"|(?:your|the)\s+(?:reminders?|expenses?|alarms?|items?|records?|settings?|files?"
+    r"|excel(?:\s+file)?|spreadsheets?))"
 )
 CLAIMS = re.compile(
     rf"\bi(?:'ve| have)?\s+(?:just\s+)?{_DONE_EN}\b"
     rf"|\b{_THINGS}\s+(?:has been|have been|is|was|are|were)\s+(?:now\s+)?{_DONE_EN}\b"
-    r"|(?:ثبت|ذخیره|اضافه|ساخته|تنظیم|کنسل|لغو|حذف|پاک|عوض|تغییر)\s*(?:شد|کردم)",
+    r"|(?:ثبت|ذخیره|اضافه|ساخته|تنظیم|کنسل|لغو|حذف|پاک|عوض|تغییر)\s*(?:شد|کردم)"
+    r"|(?:فرستادم|ارسال\s*کردم)",
     re.IGNORECASE,
 )
 CORRECTION = (

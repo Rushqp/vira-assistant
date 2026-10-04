@@ -12,7 +12,7 @@ A single-user assistant that, via Telegram (text, buttons, voice), can:
 - Answer **simple questions**
 - Create **reminders** and notify on time — e.g. *"I have a doctor's appointment tomorrow at 2, remind me in the morning"*
 - Log **expenses** — e.g. *"Paid 3 (million) toman for groceries, and 10 liters of fuel cost 100 thousand"*
-- Produce daily / weekly / monthly **reports** and export to **Excel/CSV**
+- Produce daily / weekly / monthly **reports** and **Excel** files (asked for in the chat)
 - Keep **notes and daily to-dos**
 - Transcribe **voice messages** and process them like text
 - Run fully **locally** (LLM + speech-to-text) and start on any device with **Docker**
@@ -33,7 +33,7 @@ Dates are shown in **Gregorian or Jalali (Shamsi)** — switchable by the user i
 | Hardware | **Selectable profiles**: `lite` / `standard` / `full` (+ `remote`) |
 | Language processing | **AI agent with typed tools** (v0.4); deterministic parsers validate amounts/dates and remain the fallback when no model is reachable — see `docs/AGENT_DESIGN.md` |
 | Users | **Single-user** (only `OWNER_ID` is allowed) |
-| Extras | Voice → text, Excel/CSV export, full basic-assistant feature set |
+| Extras | Voice → text, Excel files from the chat (xlsx only, decided in v0.5), full basic-assistant feature set |
 | UI language | **English** (all buttons and bot messages) |
 | Input language | **Persian + English** (text and voice); replies follow the user's language |
 | Calendar | **Gregorian + Jalali**, user-switchable in Settings |
@@ -100,7 +100,7 @@ the model never does date or currency arithmetic; reminders never depend on a mo
 | Database | **SQLite** + SQLAlchemy 2 (async, aiosqlite) | No extra service; single file on a volume |
 | Migrations | Alembic | Schema changes across versions without data loss |
 | Dual calendar | **jdatetime** + `zoneinfo` (Asia/Tehran) | Gregorian ↔ Jalali input/output; display follows user setting |
-| Excel / CSV | **openpyxl** + `csv` | Expense report export |
+| Excel | **openpyxl** | Excel files of expenses, reminders and any table (v0.5) |
 | Config | pydantic-settings + `.env` | Tokens and model selection; never committed |
 | Logging | loguru | Lightweight rotating logs |
 | Testing | pytest + pytest-asyncio | fa/en parser and service tests |
@@ -162,8 +162,10 @@ the fallback (or the brain, without keys).
 ### 6.4 Reports
 - Today / yesterday / week / month / custom range — month boundaries follow the selected calendar (Jalali month or Gregorian month)
 - Total + per-category breakdown + largest expense
-- **Excel** export (formatted, with totals) and **CSV**
-- Automatic nightly report at a configurable time (today's expenses + tomorrow's reminders)
+- **Excel** files from the chat, no menu button (v0.5): expenses (any range, filters, totals per
+  category / day / week / month with charts), reminders, or any table the assistant writes.
+  CSV was dropped (decided in v0.5)
+- Automatic nightly report at a configurable time (today's expenses + tomorrow's reminders) — v0.5
 - Optional morning briefing: today's tasks and reminders (reminders part done in v0.3)
 
 ### 6.5 Notes & To-Dos
@@ -176,7 +178,7 @@ the fallback (or the brain, without keys).
 
 ### 6.7 Settings
 - **Calendar: Gregorian / Jalali** (affects all dates in messages, reports and exports)
-- Nightly report time, morning briefing on/off
+- Nightly report and morning briefing: on/off and time (v0.5)
 - Active model (read-only display), category management
 - Backup: send the database file to the owner
 
@@ -191,13 +193,14 @@ the fallback (or the brain, without keys).
 │ 💰 Add Expense│ 📊 Today Report│ 📅 Month Report│
 ├──────────────┼───────────────┼──────────────┤
 │ 📋 Reminders  │ ✅ Today To-Dos │ 📝 Notes      │
-├──────────────┴───────┬───────┴──────────────┤
-│   📤 Export Excel     │     ⚙️ Settings       │
-└──────────────────────┴──────────────────────┘
+├──────────────┴───────────────┴──────────────┤
+│                  ⚙️ Settings                  │
+└─────────────────────────────────────────────┘
 ```
 
 - **New Chat** clears the conversation context and starts a fresh Q&A session; **Chats** continues an older one.
 - Each button either opens a multi-step form (FSM) or shows a result directly.
+- Excel files have no button (removed in v0.5): they are asked for in the chat.
 - The user can send **free text or voice (Persian or English) at any time** without pressing a button.
 - Per-item actions use **Inline Keyboards** under each message.
 - Commands: `/start` `/help` `/menu` `/new` `/chats` `/cancel` `/backup`
@@ -223,7 +226,8 @@ message ─► (voice? → STT) ─► instant tools (calculator, today's date)
 
 **Tools:** `add_expenses` · `list_expenses` · `update_expense` · `delete_expenses` · `get_report` ·
 `create_reminder` · `list_reminders` · `update_reminder` · `cancel_reminders` · `convert_date` ·
-`calculate` · `update_settings` (export, notes and to-dos become tools in later versions)
+`calculate` · `update_settings` · `export_expenses` · `export_reminders` · `make_spreadsheet`
+(notes and to-dos become tools in later versions)
 
 ### Input normalization (Persian + English)
 - Persian/Arabic digits → ASCII; `ي/ك` → `ی/ک`; zero-width non-joiner handling
@@ -270,7 +274,7 @@ vira-assistant/
 │   ├── texts.py                # all English UI strings
 │   ├── agent/                  # the AI agent (v0.4)
 │   │   ├── core.py             # loop: model → tools → results → answer
-│   │   ├── tools/              # expenses, reminders, general (reports, dates, settings)
+│   │   ├── tools/              # expenses, reminders, files (Excel), general (reports, dates, settings)
 │   │   ├── actions.py          # undo log
 │   │   ├── context.py          # per-message dates table (Gregorian = Jalali)
 │   │   └── prompt.py           # system prompt
@@ -294,7 +298,7 @@ vira-assistant/
 │   │   └── schemas.py          # JSON schemas for structured output
 │   ├── stt/whisper.py          # v0.6
 │   ├── services/               # reminders, reminder_ai, expenses, expense_ai, reports, export, notes, todos, chat, tools
-│   ├── scheduler/              # jobs.py, setup.py
+│   ├── scheduler/              # jobs.py (alerts, morning briefing, nightly report), setup.py
 │   ├── db/                     # models.py, session.py
 │   └── utils/                  # calendar.py (Gregorian/Jalali), formatting.py
 ├── scripts/eval_agent.py       # accuracy / latency benchmark of the configured models
@@ -365,7 +369,7 @@ TELEGRAM_PROXY=             # optional: socks5://host:port
 | **v0.2.0** | Ollama service + profiles, LLM client, chat with short memory + New Chat | Simple Persian and English questions get answers; model switchable via `.env` |
 | **v0.3.0** | Normalizer + fa/en date/time parser (both calendars), reminders (create/list/delete/repeat/snooze), scheduler, morning briefing (reminders), previous chats | "Doctor tomorrow at 2, remind me in the morning" is saved and delivered correctly |
 | **v0.4.0** | **AI agent with tools + free provider chain** (model switching in the bot, switch notices), amount parser, expenses (multi-item), categories, daily/monthly reports | The groceries + fuel example creates two correct records |
-| **v0.5.0** | Excel/CSV export, nightly report, morning briefing | Current month's Excel file is received |
+| **v0.5.0** | Excel files from the chat (expenses, reminders, any table), nightly report, briefing and report times in Settings | Current month's Excel file is received |
 | **v0.6.0** | Voice → text (faster-whisper) | Persian and English voice is processed like text |
 | **v0.7.0** | Notes, to-dos, settings, backup | All menu buttons functional |
 | **v1.0.0** | Full test coverage, memory optimization, README, INSTALL guide, screenshots | Clean-server install using only the README |

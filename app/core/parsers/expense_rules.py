@@ -210,12 +210,24 @@ _PERIODS: list[tuple[re.Pattern, Period]] = [
 ]  # fmt: skip
 
 
+def parse_period(raw: str) -> Period | None:
+    """The period named in a message («ماه قبل», "this week"), if any."""
+    text = normalize(raw, lowercase=False)
+    return next((period for pattern, period in _PERIODS if pattern.search(text)), None)
+
+
 def parse_report_request(raw: str) -> Period | None:
     """«گزارش این ماه» → "month", "how much did I spend last week" → "last_week"."""
-    text = normalize(raw, lowercase=False)
-    if not _REPORT_WORD.search(text):
+    if not _REPORT_WORD.search(normalize(raw, lowercase=False)):
         return None
-    for pattern, period in _PERIODS:
-        if pattern.search(text):
-            return period
-    return "today"
+    return parse_period(raw) or "today"
+
+
+# --- Excel requests (when no model is available) ---
+
+_EXPORT_WORD = re.compile(rf"\b(?:excel|xlsx|spreadsheet|export)\b|{B}اکسل", re.IGNORECASE)
+
+
+def has_export_intent(raw: str) -> bool:
+    """«اکسل هزینه‌های این ماه», "export to Excel"."""
+    return bool(_EXPORT_WORD.search(normalize(raw, lowercase=False)))

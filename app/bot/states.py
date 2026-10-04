@@ -22,6 +22,10 @@ class ExpenseForm(StatesGroup):
     buttons = State()  # waiting for a button press (thousand/million, category, confirm)
 
 
+class SettingsForm(StatesGroup):
+    digest_time = State()  # ⚙️ Settings → ☀️ / 🌙 → 🕐 Other time: waiting for "HH:MM"
+
+
 class CategoryForm(StatesGroup):
     name = State()  # ⚙️ Settings → 🏷 Categories → ➕ Add: waiting for "emoji name"
 

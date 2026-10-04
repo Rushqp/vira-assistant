@@ -7,7 +7,7 @@
 
 [English](#english) · [فارسی](#فارسی)
 
-![version](https://img.shields.io/badge/version-0.4.0-blue)
+![version](https://img.shields.io/badge/version-0.5.0-blue)
 ![python](https://img.shields.io/badge/python-3.12-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 [![CI](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml)
@@ -31,6 +31,7 @@ acts:
 - *«تایم دکتر رو کنسل کن»* → that reminder is cancelled
 - *«نه، ماست ۲۵۰ هزار بود»* → the expense is corrected
 - *«این ماه چقدر خرج کردم؟»* → a monthly report
+- *«اکسل خرج‌های خوراکی مهر رو بده»* → an Excel file with totals and charts
 - and ordinary questions, answered in your language
 
 Every action shows what was done, with **↩️ Undo** and **✏️ Edit** buttons. Vira only asks when
@@ -49,7 +50,7 @@ never depend on the AI. Design: [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md).
 | **v0.2.0** | Ollama + hardware profiles, streaming chat with short memory, calculator, today's date | ✅ Done |
 | **v0.3.0** | Reminders (fa/en date parser, both calendars, repeats, snooze), morning briefing, previous chats | ✅ Done |
 | **v0.4.0** | **AI agent** (understands any phrasing, follow-ups, undo / edit), free AI models from 5 providers with failover, model switching in the bot and notices, expenses, 13 categories with learning, reports | ✅ Done |
-| v0.5.0 | Excel/CSV export, nightly report | ⏳ Next |
+| **v0.5.0** | **Excel files from the chat** (expenses, reminders, any table), nightly report, briefing and report times in Settings | ✅ Done |
 | v0.6.0 | Voice → text (faster-whisper) | |
 | v0.7.0 | Notes, to-dos, backup | |
 | v1.0.0 | Full tests, optimization, install guide | |
@@ -138,7 +139,16 @@ All of these have a free tier. Add any of the keys to `.env` (more keys = more b
   ⚙️ Settings → 🏷 Categories adds or removes categories.
 - **Reports:** 📊 **Today Report**, 📅 **Month Report** (Jalali or Gregorian month), or just ask:
   total, comparison with the previous period, daily average, per-category bars, largest expense.
+- **Excel files:** just ask in the chat, no button needed. *«اکسل هزینه‌های این ماه رو بده»*,
+  *«خرج‌های بنزین امسال رو اکسل کن با جمع هر ماه»*, *«یادآورهای هفته بعد رو اکسل کن»*, or any
+  table: *«یه برنامه ورزشی هفتگی به صورت اکسل بده»*. Expense files have a sheet of every
+  expense plus totals per category / day / week / month with charts, in the selected
+  calendar. Without details you get this month.
 - **Morning briefing:** every day at 08:00, today's reminders, important ones (⭐) first.
+- **Nightly report:** every day at 22:00, today's expenses (with a nudge when nothing was
+  recorded), this month so far and tomorrow's reminders.
+- ⚙️ **Settings → ☀️ Morning briefing / 🌙 Nightly report:** on / off and the time (or just say
+  *«گزارش شبانه رو ساعت ۱۱ بفرست»*).
 - 💬 **New Chat** starts a fresh conversation; 🗂 **Chats** continues an older one.
 - 🤖 **AI model** (⚙️ Settings or `/model`): see which models are ready and choose the one that
   answers first.
@@ -171,8 +181,8 @@ All of these have a free tier. Add any of the keys to `.env` (more keys = more b
 | `OLLAMA_KEEP_ALIVE` | `30m` | How long the local model stays in RAM after use (`-1` = forever) |
 | `STT_ENABLED` / `STT_MODEL` | `true` / profile default | Voice transcription (v0.6) |
 | `MORNING_TIME` … `NIGHT_TIME` | `09:00` `12:00` `16:00` `19:00` `22:00` | Clock times for morning, noon, afternoon, evening, night |
-| `MORNING_BRIEFING_TIME` | `08:00` | Daily list of today's reminders |
-| `DAILY_REPORT_TIME` | `22:00` | Time of the nightly report (v0.5) |
+| `MORNING_BRIEFING_TIME` | `08:00` | Default time of the morning briefing (change it in ⚙️ Settings) |
+| `DAILY_REPORT_TIME` | `22:00` | Default time of the nightly report (change it in ⚙️ Settings) |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` … |
 
 **Hardware profiles** (the free APIs come first in every profile when a key is set)
@@ -196,7 +206,8 @@ app/
 ├── texts.py           # Every user-facing string (edit wording here only)
 ├── agent/             # The brain: an AI agent with typed tools
 │   ├── core.py        #   the loop: model → tool calls → results → short answer
-│   ├── tools/         #   expenses, reminders, general (reports, dates, settings); validation
+│   ├── tools/         #   expenses, reminders, files (Excel), general (reports, dates,
+│   │                  #   settings); argument validation
 │   ├── actions.py     #   undo log for everything the agent changed
 │   ├── context.py     #   per-message context: now + dates table (Gregorian = Jalali)
 │   └── prompt.py      #   the system prompt
@@ -218,8 +229,8 @@ app/
 │   ├── textmatch.py   #   fuzzy references («تایم دکتر» → the doctor reminder)
 │   └── parsers/       #   dates & times, reminder sentences, amounts, expense sentences
 ├── services/          # Business logic, independent of Telegram: reminders, expenses,
-│                      #   reports, chat history, settings, calculator
-├── scheduler/         # due reminders + morning briefing (APScheduler)
+│                      #   reports, export (Excel files), chat history, settings, calculator
+├── scheduler/         # due reminders, morning briefing and nightly report (APScheduler)
 ├── db/                # models.py = tables, session.py = engine + migrations
 └── utils/             # Jalali / Gregorian formatting, Markdown → HTML, money
 scripts/eval_agent.py  # accuracy / latency of each configured model on real Persian cases
@@ -275,6 +286,7 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 - «تایم دکتر رو کنسل کن» ← همان یادآور کنسل می‌شود
 - «نه، ماست ۲۵۰ هزار بود» ← هزینه اصلاح می‌شود
 - «این ماه چقدر خرج کردم؟» ← گزارش ماه
+- «اکسل خرج‌های خوراکی مهر رو بده» ← فایل اکسل با جمع‌ها و نمودار
 - و سوال‌های معمولی که به زبان خودتان جواب داده می‌شوند
 
 نتیجه هر کار با دکمه‌های **↩️ برگشت** و **✏️ ویرایش** نشان داده می‌شود. ویرا فقط وقتی چیزی واقعاً مبهم
@@ -293,7 +305,7 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 | **v0.2.0** | Ollama و پروفایل‌های سخت‌افزاری، چت استریمی با حافظه کوتاه، ماشین‌حساب، تاریخ امروز | ✅ انجام شد |
 | **v0.3.0** | یادآورها (پارسر تاریخ فارسی/انگلیسی، هر دو تقویم، تکرار، تعویق)، خلاصه صبحگاهی، چت‌های قبلی | ✅ انجام شد |
 | **v0.4.0** | **Agent هوش مصنوعی** (فهم هر جمله، پیگیری حرف‌های قبلی، برگشت / ویرایش)، مدل‌های رایگان هوش مصنوعی از ۵ سرویس با جایگزینی خودکار، عوض کردن مدل داخل ربات و اعلان، هزینه‌ها، ۱۳ دسته با یادگیری، گزارش‌ها | ✅ انجام شد |
-| v0.5.0 | خروجی اکسل/CSV، گزارش شبانه | ⏳ بعدی |
+| **v0.5.0** | **فایل اکسل از داخل چت** (هزینه‌ها، یادآورها، هر جدولی)، گزارش شبانه، تنظیم ساعت خلاصه صبحگاهی و گزارش شبانه | ✅ انجام شد |
 | v0.6.0 | تبدیل صوت به متن (faster-whisper) | |
 | v0.7.0 | یادداشت‌ها، کارهای روزانه، پشتیبان‌گیری | |
 | v1.0.0 | تست کامل، بهینه‌سازی، راهنمای نصب | |
@@ -393,7 +405,16 @@ docker compose logs -f bot
   ⚙️ Settings ← 🏷 Categories اضافه و حذف می‌شوند.
 - **گزارش‌ها:** 📊 **Today Report**، 📅 **Month Report** (ماه شمسی یا میلادی) یا فقط بپرسید: جمع کل،
   مقایسه با دوره قبل، میانگین روزانه، نمودار متنی دسته‌ها و بزرگ‌ترین هزینه.
+- **فایل اکسل:** کافی است در چت بخواهید و دکمه‌ای لازم نیست: «اکسل هزینه‌های این ماه رو بده»،
+  «خرج‌های بنزین امسال رو اکسل کن با جمع هر ماه»، «یادآورهای هفته بعد رو اکسل کن» یا هر جدولی مثل
+  «یه برنامه ورزشی هفتگی به صورت اکسل بده». فایل هزینه‌ها یک شیت با همه هزینه‌ها و شیت‌هایی با جمع هر
+  دسته / روز / هفته / ماه و نمودار دارد، با تاریخ‌های تقویم انتخابی. اگر جزئیاتی نگویید، هزینه‌های
+  همین ماه فرستاده می‌شود.
 - **خلاصه صبحگاهی:** هر روز ساعت ۸ صبح، یادآورهای امروز با موارد مهم (⭐) در بالا.
+- **گزارش شبانه:** هر روز ساعت ۱۰ شب، هزینه‌های امروز (اگر چیزی ثبت نشده باشد یک یادآوری برای ثبت
+  هزینه‌های جاافتاده)، جمع ماه تا امروز و یادآورهای فردا.
+- ⚙️ **Settings ← ☀️ Morning briefing / 🌙 Nightly report:** روشن / خاموش کردن و تنظیم ساعت (یا فقط
+  بگویید «گزارش شبانه رو ساعت ۱۱ بفرست»).
 - 💬 **New Chat** گفتگوی تازه شروع می‌کند و 🗂 **Chats** گفتگوهای قبلی را ادامه می‌دهد.
 - 🤖 **AI model** (در ⚙️ Settings یا با `/model`): وضعیت مدل‌ها را ببینید و مدلی را که اول جواب بدهد
   انتخاب کنید.
@@ -426,8 +447,8 @@ docker compose logs -f bot
 | `OLLAMA_KEEP_ALIVE` | `30m` | مدت ماندن مدل لوکال در رم بعد از آخرین پیام (`-1` یعنی همیشه) |
 | `STT_ENABLED` / `STT_MODEL` | `true` / پیش‌فرض پروفایل | تبدیل صوت به متن (نسخه ۰٫۶) |
 | `MORNING_TIME` … `NIGHT_TIME` | `09:00` `12:00` `16:00` `19:00` `22:00` | ساعت پیش‌فرض صبح، ظهر، بعدازظهر، عصر و شب |
-| `MORNING_BRIEFING_TIME` | `08:00` | ساعت ارسال خلاصه صبحگاهی |
-| `DAILY_REPORT_TIME` | `22:00` | ساعت گزارش شبانه (نسخه ۰٫۵) |
+| `MORNING_BRIEFING_TIME` | `08:00` | ساعت پیش‌فرض خلاصه صبحگاهی (در ⚙️ Settings قابل تغییر) |
+| `DAILY_REPORT_TIME` | `22:00` | ساعت پیش‌فرض گزارش شبانه (در ⚙️ Settings قابل تغییر) |
 | `LOG_LEVEL` | `INFO` | سطح لاگ |
 
 **پروفایل‌های سخت‌افزاری** (در همه پروفایل‌ها، اگر کلید API باشد، سرویس‌های رایگان اول امتحان می‌شوند)
@@ -449,7 +470,7 @@ docker compose logs -f bot
 - `app/texts.py`: همه متن‌هایی که کاربر می‌بیند (برای تغییر متن‌ها فقط همین فایل را ویرایش کنید)
 - `app/agent/`: مغز برنامه، یک Agent هوش مصنوعی با ابزارهای مشخص
   - `core.py`: حلقه اصلی (مدل ← درخواست ابزار ← نتیجه ← جواب کوتاه)
-  - `tools/`: ابزارهای هزینه، یادآور و عمومی (گزارش، تاریخ، تنظیمات) همراه با بررسی ورودی‌ها
+  - `tools/`: ابزارهای هزینه، یادآور، فایل اکسل و عمومی (گزارش، تاریخ، تنظیمات) همراه با بررسی ورودی‌ها
   - `actions.py`: ثبت کارهای انجام‌شده برای ↩️ برگشت
   - `context.py`: اطلاعات هر پیام (زمان فعلی و جدول تاریخ‌ها به شمسی و میلادی)
   - `prompt.py`: پرامپت سیستمی
@@ -464,8 +485,9 @@ docker compose logs -f bot
     `streaming.py`، `states.py`
 - `app/core/`: ابزارهای دقیق زبانی بدون هوش مصنوعی: نرمال‌سازی متن، پیدا کردن ارجاع‌ها
   («تایم دکتر» ← یادآور دکتر) و پارسرهای تاریخ، مبلغ، یادآور و هزینه
-- `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (یادآورها، هزینه‌ها، گزارش‌ها، تاریخچه چت، تنظیمات)
-- `app/scheduler/`: ارسال یادآورها و خلاصه صبحگاهی
+- `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (یادآورها، هزینه‌ها، گزارش‌ها، ساخت فایل اکسل،
+  تاریخچه چت، تنظیمات)
+- `app/scheduler/`: ارسال یادآورها، خلاصه صبحگاهی و گزارش شبانه
 - `app/db/`، `app/utils/`، `migrations/`، `tests/`، `docker/`
 - `scripts/eval_agent.py`: سنجش دقت و سرعت هر مدل روی پیام‌های واقعی فارسی و انگلیسی
 

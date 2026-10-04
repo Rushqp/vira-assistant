@@ -22,10 +22,12 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from openpyxl import load_workbook
 from sqlalchemy import select
 
 from app.agent.actions import ActionLog
@@ -183,8 +185,42 @@ def setting_calendar(value: str) -> Check:
     return check
 
 
+def file_of(kind: str, count: int | None = None, min_rows: int = 1) -> Check:
+    """An Excel file of `kind` was sent (with `count` items / at least `min_rows` rows)."""
+
+    async def check(o: Outcome) -> str | None:
+        files = [c for c in o.result.cards if c.kind == "file"]  # type: ignore[attr-defined]
+        if not files:
+            return f"no file (got {o.tools})"
+        caption = files[0].data["caption"]
+        if caption.get("kind") != kind:
+            return f"a {caption.get('kind')} file"
+        if count is not None and caption.get("count") != count:
+            return f"{caption.get('count')} items in the file"
+        rows = load_workbook(BytesIO(files[0].attachment)).active.max_row - 1
+        return None if rows >= min_rows else f"only {rows} rows"
+
+    return check
+
+
+def setting_is(key: str, value: str) -> Check:
+    async def check(o: Outcome) -> str | None:
+        current = await o.ctx.settings.get(key)
+        return None if current == value else f"{key} = {current}"
+
+    return check
+
+
 def tomorrow_iso(now: datetime) -> str:
     return (now + timedelta(days=1)).date().isoformat()
+
+
+SHOPPING = {
+    "items": [
+        {"description": "نان", "amount_text": "۵۰ هزار", "category": "Groceries"},
+        {"description": "بنزین", "amount_text": "۲۰۰ هزار", "category": "Fuel"},
+    ]
+}
 
 
 CASES = [
@@ -237,6 +273,34 @@ CASES = [
     Case("settings", "تقویم رو میلادی کن", setting_calendar("gregorian")),
     Case("night", "یادم بنداز پس فردا شب به مامان زنگ بزنم", reminder_at(2, 22)),
     Case("restaurant", "ناهار امروز با بچه ها ۸۵۰ هزار شد", expenses_are(850_000)),
+    Case(
+        "excel-month",
+        "اکسل هزینه های این ماه رو بده",
+        file_of("expenses", count=2),
+        setup=[("add_expenses", SHOPPING)],
+    ),
+    Case(
+        "excel-filter",
+        "فقط خرج بنزین این ماه رو اکسل کن",
+        file_of("expenses", count=1),
+        setup=[("add_expenses", SHOPPING)],
+    ),
+    Case(
+        "excel-reminders",
+        "یادآورهام رو به صورت اکسل بفرست",
+        file_of("reminders", count=1),
+        setup=[("create_reminder", {"subject": "دکتر", "start": "{tomorrow}T14:00"})],
+    ),
+    Case(
+        "excel-table",
+        "یه جدول برنامه ورزشی هفتگی به صورت اکسل بهم بده",
+        file_of("table", min_rows=3),
+    ),
+    Case(
+        "nightly-time",
+        "گزارش شبانه رو ساعت ۱۱ شب بفرست",
+        setting_is("nightly_report_time", "23:00"),
+    ),
 ]
 
 

@@ -321,6 +321,22 @@ class ReminderService:
         )
         return list(rows.all())
 
+    async def listing(
+        self,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        statuses: tuple[str, ...] = ("active",),
+    ) -> list[Reminder]:
+        """Reminders whose event is in [start, end) (local, aware; None = open), oldest first."""
+        query = select(Reminder).options(selectinload(Reminder.alerts))
+        query = query.where(Reminder.status.in_(statuses))
+        if start is not None:
+            query = query.where(Reminder.event_at >= to_utc(start))
+        if end is not None:
+            query = query.where(Reminder.event_at < to_utc(end))
+        rows = await self.session.scalars(query.order_by(Reminder.event_at, Reminder.id))
+        return list(rows.all())
+
     async def on_day(self, day: date) -> list[Reminder]:
         """Active reminders whose event falls on `day` (local), important first."""
         start = to_utc(datetime.combine(day, time(0), self.timezone))

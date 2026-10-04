@@ -23,7 +23,6 @@ MENU_BUTTONS = {
     texts.BTN_REMINDERS,
     texts.BTN_TODOS,
     texts.BTN_NOTES,
-    texts.BTN_EXPORT,
     texts.BTN_SETTINGS,
 }
 

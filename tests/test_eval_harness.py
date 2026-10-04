@@ -66,3 +66,17 @@ async def test_follow_up_case_has_its_setup(config):
     model = ScriptedModel([tool("cancel_reminders", query="دکتر")])
     ok, detail, _ = await eval_agent.run_case(case("cancel-follow-up"), model, config)
     assert ok, detail
+
+
+async def test_excel_cases(config):
+    month = ScriptedModel([tool("export_expenses", period="this_month")])
+    ok, detail, _ = await eval_agent.run_case(case("excel-month"), month, config)
+    assert ok, detail
+
+    everything = ScriptedModel([tool("export_expenses")])  # ignores "only fuel"
+    ok, detail, _ = await eval_agent.run_case(case("excel-filter"), everything, config)
+    assert not ok and "2 items" in detail
+
+    no_file = ScriptedModel([LLMResponse(content="Here is your table: …", provider="x")])
+    ok, detail, _ = await eval_agent.run_case(case("excel-table"), no_file, config)
+    assert not ok and "no file" in detail

@@ -136,7 +136,10 @@ Key decisions:
 | `cancel_reminders` | Cancel by ids or query | `ids?`, `query?` | ambiguous query → candidates |
 | `convert_date` | Jalali ↔ Gregorian, weekday | `date_text` | date parser / jdatetime |
 | `calculate` | Arithmetic | `expression` | safe AST evaluator |
-| `update_settings` | Calendar, morning briefing | `calendar?`, `morning_briefing?` | enum validation |
+| `update_settings` | Calendar, morning briefing, nightly report | `calendar?`, `morning_briefing?`, `morning_briefing_time?`, `nightly_report?`, `nightly_report_time?` | enum validation; time parser (a bare «۹» is 21:00 for the nightly report, which must be 12:00–23:59) |
+| `export_expenses` | Send an Excel file of expenses | `period?` / `month?` / `year?` / `from_date?` + `to_date?`, `categories?`, `query?`, `columns?`, `summaries?`, `chart?` | months by name or number in both calendars («مهر», "October", `1405-07`), dates via the date parser; unknown category → the list |
+| `export_reminders` | Send an Excel file of reminders | `period?` (upcoming …), `from_date?`, `to_date?`, `query?`, `important_only?`, `include_done?` | date parser |
+| `make_spreadsheet` | Any table as an Excel file | `title`, `sheets[{name, columns, rows, totals?}]` | size limits; numbers detected safely (phone numbers stay text); rows given as objects are accepted |
 
 Errors are returned to the model as `{"error": "...", "hint": "..."}`; the model gets up to four
 rounds per message to correct itself or ask the user.
@@ -216,6 +219,6 @@ defaults can be benchmarked on the real server.
 
 - Benchmark local defaults per profile with `scripts/eval_agent.py` on the real server.
 - Voice (v0.6) will feed transcripts into the same agent.
-- Notes / to-dos (v0.7) become new tools; export (v0.5) becomes a tool returning a file.
+- Notes / to-dos (v0.7) become new tools (and `export_*` gains them).
 - If quotas tighten: a small classifier to answer trivial chat locally and save API calls.
 - Proactive suggestions (e.g. budget warnings) once there is enough data.

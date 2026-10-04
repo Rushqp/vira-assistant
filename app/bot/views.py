@@ -1,7 +1,7 @@
 """Message rendering shared by handlers and scheduled jobs.
 
-Reminder cards, notifications, the morning briefing, expense cards and reports. All functions
-return Telegram HTML; user text (subjects, descriptions) is escaped here.
+Reminder cards, notifications, the morning briefing, expense cards, reports and the nightly
+report. All functions return Telegram HTML; user text (subjects, descriptions) is escaped here.
 """
 
 import html
@@ -11,17 +11,12 @@ from zoneinfo import ZoneInfo
 from app import texts
 from app.config import Calendar
 from app.core.parsers.datetime_parser import DayTimes, RepeatRule
-from app.db.models import Category, Reminder
+from app.db.models import Category, Expense, Reminder
 from app.services.expenses import ExpenseDraft
 from app.services.reminders import ReminderDraft, from_utc
 from app.services.reports import Report, month_name
 from app.utils.calendar import JALALI_MONTHS, format_date
 from app.utils.formatting import bar, format_money, format_quantity
-
-FULL_GREGORIAN_MONTHS = (
-    "January", "February", "March", "April", "May", "June", "July", "August", "September",
-    "October", "November", "December",
-)  # fmt: skip
 
 
 def format_when(event: datetime, all_day: bool, calendar: Calendar) -> str:
@@ -205,7 +200,7 @@ def _report_title(report: Report, calendar: Calendar) -> str:
             end=format_date(last, calendar, weekday=False),
         )
     month, year = month_name(report.start, calendar)
-    names = JALALI_MONTHS["en"] if calendar == Calendar.JALALI else FULL_GREGORIAN_MONTHS
+    names = JALALI_MONTHS["en"] if calendar == Calendar.JALALI else texts.GREGORIAN_MONTH_NAMES
     return texts.REPORT_MONTH_TITLE.format(month=names[month - 1], year=year)
 
 
@@ -238,16 +233,7 @@ def report(report: Report, currency: str, calendar: Calendar) -> str:
         average = report.total // report.days_elapsed
         lines.append(texts.REPORT_AVERAGE.format(amount=format_money(average, currency)))
     lines.append("")
-    for entry in report.by_category:
-        lines.append(
-            texts.REPORT_CATEGORY.format(
-                emoji=entry.category.emoji,
-                name=html.escape(entry.category.name),
-                bar=bar(entry.share),
-                percent=f"{entry.share * 100:.0f}",
-                amount=format_money(entry.total, currency),
-            )
-        )
+    lines += _category_lines(report, currency)
     largest = report.largest
     if largest and len(report.expenses) > 1:
         lines += [
@@ -258,17 +244,92 @@ def report(report: Report, currency: str, calendar: Calendar) -> str:
             ),
         ]
     if report.kind == "day":
-        lines += ["", texts.REPORT_ITEMS]
-        for n, expense in enumerate(report.expenses[:REPORT_MAX_ITEMS], 1):
-            lines.append(
-                texts.REPORT_ITEM.format(
-                    n=n,
-                    emoji=expense.category.emoji,
-                    description=html.escape(expense.description or texts.EXPENSE_NO_DESCRIPTION),
-                    quantity=format_quantity(expense.quantity, expense.unit),
-                    amount=format_money(expense.amount, currency),
-                )
+        lines += ["", texts.REPORT_ITEMS, *_item_lines(report.expenses, currency)]
+    return "\n".join(lines)
+
+
+def _category_lines(report: Report, currency: str) -> list[str]:
+    return [
+        texts.REPORT_CATEGORY.format(
+            emoji=entry.category.emoji,
+            name=html.escape(entry.category.name),
+            bar=bar(entry.share),
+            percent=f"{entry.share * 100:.0f}",
+            amount=format_money(entry.total, currency),
+        )
+        for entry in report.by_category
+    ]
+
+
+def _item_lines(expenses: list[Expense], currency: str) -> list[str]:
+    lines = [
+        texts.REPORT_ITEM.format(
+            n=n,
+            emoji=expense.category.emoji,
+            description=html.escape(expense.description or texts.EXPENSE_NO_DESCRIPTION),
+            quantity=format_quantity(expense.quantity, expense.unit),
+            amount=format_money(expense.amount, currency),
+        )
+        for n, expense in enumerate(expenses[:REPORT_MAX_ITEMS], 1)
+    ]
+    if len(expenses) > REPORT_MAX_ITEMS:
+        lines.append(texts.REPORT_MORE.format(count=len(expenses) - REPORT_MAX_ITEMS))
+    return lines
+
+
+def expense_count(count: int) -> str:
+    """`1 expense` / `3 expenses`."""
+    if count == 1:
+        return texts.EXPENSE_COUNT["one"]
+    return texts.EXPENSE_COUNT["many"].format(count=count)
+
+
+# --- Nightly report ---
+
+
+def nightly_report(
+    day: Report,
+    month: Report,
+    tomorrow: list[Reminder],
+    tz: ZoneInfo,
+    calendar: Calendar,
+    currency: str,
+) -> str:
+    """Today's expenses, this month so far and tomorrow's reminders (important first)."""
+    lines = [texts.NIGHTLY_TITLE.format(today=format_date(day.start, calendar)), ""]
+    if day.expenses:
+        lines.append(
+            texts.NIGHTLY_SPENT.format(
+                amount=format_money(day.total, currency), count=expense_count(len(day.expenses))
             )
-        if len(report.expenses) > REPORT_MAX_ITEMS:
-            lines.append(texts.REPORT_MORE.format(count=len(report.expenses) - REPORT_MAX_ITEMS))
+        )
+        lines += [*_category_lines(day, currency), "", *_item_lines(day.expenses, currency)]
+    else:
+        lines.append(texts.NIGHTLY_NOTHING)
+    if month.expenses:
+        average = month.total // month.days_elapsed
+        lines += [
+            "",
+            texts.NIGHTLY_MONTH.format(
+                amount=format_money(month.total, currency),
+                average=format_money(average, currency),
+            ),
+        ]
+    lines.append("")
+    if not tomorrow:
+        lines.append(texts.NIGHTLY_TOMORROW_EMPTY)
+        return "\n".join(lines)
+    lines.append(texts.NIGHTLY_TOMORROW)
+    for reminder in tomorrow:
+        if reminder.all_day:
+            clock = texts.REMINDER_ALL_DAY
+        else:
+            clock = f"{from_utc(reminder.event_at, tz):%H:%M}"
+        lines.append(
+            texts.NIGHTLY_ITEM.format(
+                star="⭐ " if reminder.important else "",
+                time=clock,
+                subject=html.escape(reminder.text),
+            )
+        )
     return "\n".join(lines)

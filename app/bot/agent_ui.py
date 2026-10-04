@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, InlineKeyboardMarkup, Message
 from loguru import logger
 
 from app import texts
@@ -23,7 +23,14 @@ from app.db.models import Expense
 from app.llm.providers import Notice
 from app.services.expenses import ExpenseService
 from app.services.reminders import ReminderService, from_utc
-from app.services.settings import KEY_BRIEFING, KEY_CALENDAR, SettingsService
+from app.services.settings import (
+    KEY_BRIEFING,
+    KEY_BRIEFING_TIME,
+    KEY_CALENDAR,
+    KEY_NIGHTLY,
+    KEY_NIGHTLY_TIME,
+    SettingsService,
+)
 from app.utils.calendar import format_date
 from app.utils.formatting import format_money, format_quantity
 
@@ -142,10 +149,43 @@ async def render_card(card: Card, deps: UiDeps) -> Rendered | None:
                     lines.append(
                         texts.AGENT_SETTING_CALENDAR.format(value=texts.CALENDAR_NAMES[value])
                     )
-                elif key == KEY_BRIEFING:
-                    lines.append(texts.AGENT_SETTING_BRIEFING.format(value=value))
+                elif key in _SETTING_LINES:
+                    lines.append(_SETTING_LINES[key].format(value=value))
             return "\n".join(lines), action_buttons(aid, edit=False)
     return None
+
+
+_SETTING_LINES = {
+    KEY_BRIEFING: texts.AGENT_SETTING_BRIEFING,
+    KEY_BRIEFING_TIME: texts.AGENT_SETTING_BRIEFING_TIME,
+    KEY_NIGHTLY: texts.AGENT_SETTING_NIGHTLY,
+    KEY_NIGHTLY_TIME: texts.AGENT_SETTING_NIGHTLY_TIME,
+}
+
+
+# --- Files ---
+
+
+def file_caption(caption: dict, deps: UiDeps) -> str:
+    title = html.escape(caption.get("title", ""))
+    match caption.get("kind"):
+        case "expenses":
+            return texts.EXPORT_CAPTION_EXPENSES.format(
+                title=title,
+                count=views.expense_count(caption.get("count", 0)),
+                total=format_money(caption.get("total", 0), deps.currency),
+            )
+        case "reminders":
+            return texts.EXPORT_CAPTION_REMINDERS.format(title=title, count=caption.get("count", 0))
+    return texts.EXPORT_CAPTION_TABLE.format(title=title)
+
+
+async def send_file(target: Message, card: Card, deps: UiDeps) -> None:
+    """A "file" card: the document with a short caption."""
+    if not card.attachment:
+        return
+    document = BufferedInputFile(card.attachment, filename=card.data["filename"])
+    await target.answer_document(document, caption=file_caption(card.data["caption"], deps))
 
 
 # --- Model switch notices ---

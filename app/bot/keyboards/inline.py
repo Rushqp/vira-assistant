@@ -15,7 +15,7 @@ class SettingsCb(CallbackData, prefix="settings"):
     action: str
 
 
-def settings_menu(current_calendar: Calendar, briefing: bool = True) -> InlineKeyboardMarkup:
+def settings_menu(current_calendar: Calendar) -> InlineKeyboardMarkup:
     other = Calendar.GREGORIAN if current_calendar == Calendar.JALALI else Calendar.JALALI
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -27,9 +27,13 @@ def settings_menu(current_calendar: Calendar, briefing: bool = True) -> InlineKe
             ],
             [
                 InlineKeyboardButton(
-                    text=texts.BTN_BRIEFING_OFF if briefing else texts.BTN_BRIEFING_ON,
-                    callback_data=SettingsCb(action="toggle_briefing").pack(),
-                )
+                    text=texts.BTN_BRIEFING_SETTINGS,
+                    callback_data=DigestCb(kind="briefing", action="open").pack(),
+                ),
+                InlineKeyboardButton(
+                    text=texts.BTN_NIGHTLY_SETTINGS,
+                    callback_data=DigestCb(kind="nightly", action="open").pack(),
+                ),
             ],
             [
                 InlineKeyboardButton(
@@ -38,6 +42,53 @@ def settings_menu(current_calendar: Calendar, briefing: bool = True) -> InlineKe
                 InlineKeyboardButton(
                     text=texts.BTN_AI_MODEL, callback_data=SettingsCb(action="ai").pack()
                 ),
+            ],
+        ]
+    )
+
+
+# --- ⚙️ Settings → ☀️ Morning briefing / 🌙 Nightly report ---
+
+
+class DigestCb(CallbackData, prefix="digest"):
+    kind: str  # briefing | nightly
+    action: str  # open | on | off | time | other
+    value: str = ""  # "time": HHMM
+
+
+DIGEST_TIMES = {
+    "briefing": ("06:00", "07:00", "08:00", "09:00"),
+    "nightly": ("20:00", "21:00", "22:00", "23:00"),
+}
+
+
+def digest_menu(kind: str, enabled: bool, current: str) -> InlineKeyboardMarkup:
+    """On / off, preset times (the current one marked), another time, and back to Settings."""
+    toggle = InlineKeyboardButton(
+        text=texts.BTN_DIGEST_OFF if enabled else texts.BTN_DIGEST_ON,
+        callback_data=DigestCb(kind=kind, action="off" if enabled else "on").pack(),
+    )
+    times = [
+        InlineKeyboardButton(
+            text=(texts.BTN_SELECTED + clock) if clock == current and enabled else clock,
+            callback_data=DigestCb(kind=kind, action="time", value=clock.replace(":", "")).pack(),
+        )
+        for clock in DIGEST_TIMES[kind]
+    ]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [toggle],
+            times,
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_DIGEST_OTHER,
+                    callback_data=DigestCb(kind=kind, action="other").pack(),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=texts.BTN_BACK, callback_data=SettingsCb(action="show").pack()
+                )
             ],
         ]
     )

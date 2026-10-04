@@ -4,13 +4,13 @@ from datetime import datetime
 
 from aiogram import Bot
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
-from app.scheduler.jobs import send_due_reminders, send_morning_briefing
+from app.scheduler.jobs import send_daily_digests, send_due_reminders
 
 CHECK_EVERY_SECONDS = 20
+DIGESTS_EVERY_SECONDS = 30
 
 
 def create_scheduler(
@@ -28,13 +28,16 @@ def create_scheduler(
         coalesce=True,
         next_run_time=datetime.now(config.timezone),
     )
-    briefing = config.morning_briefing_time
+    # The times can change in ⚙️ Settings, so this checks them instead of a fixed cron time
+    # (the first run, right at startup, also catches up a message missed while offline).
     scheduler.add_job(
-        send_morning_briefing,
-        CronTrigger(hour=briefing.hour, minute=briefing.minute, timezone=config.timezone),
+        send_daily_digests,
+        "interval",
+        seconds=DIGESTS_EVERY_SECONDS,
         args=args,
-        id="morning_briefing",
+        id="daily_digests",
+        max_instances=1,
         coalesce=True,
-        misfire_grace_time=3600,
+        next_run_time=datetime.now(config.timezone),
     )
     return scheduler

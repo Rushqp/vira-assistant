@@ -43,11 +43,11 @@ async def test_new_chat_button_and_command(env):
 
 async def test_planned_buttons_and_commands_do_not_reach_llm(env):
     send, session, llm = env
-    await send(texts.BTN_EXPORT)
+    await send(texts.BTN_NOTES)
     await send("/backup")
     await send("/whatever")
     assert llm.calls == []
-    assert "v0.5" in session.sent[0]
+    assert "v0.7" in session.sent[0]
     assert "v0.7" in session.sent[1]
     assert session.sent[2] == texts.UNKNOWN_COMMAND
 

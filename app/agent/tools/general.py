@@ -4,8 +4,16 @@ from app.agent.context import date_line
 from app.agent.tools import Args, Card, Tool, ToolContext, ToolError, ToolOutcome
 from app.agent.tools.common import PERIODS, parse_date_arg
 from app.config import Calendar
+from app.core.parsers.rules import parse_clock
 from app.services.reports import ReportService
-from app.services.settings import KEY_BRIEFING, KEY_CALENDAR
+from app.services.settings import (
+    KEY_BRIEFING,
+    KEY_BRIEFING_TIME,
+    KEY_CALENDAR,
+    KEY_NIGHTLY,
+    KEY_NIGHTLY_TIME,
+    NIGHTLY_EARLIEST,
+)
 from app.services.tools import CalcError, calculate, format_number
 
 # --- get_report ---
@@ -76,23 +84,45 @@ async def run_calculate(args: CalculateArgs, ctx: ToolContext) -> ToolOutcome:
 class SettingsArgs(Args):
     calendar: str | None = None
     morning_briefing: bool | None = None
+    morning_briefing_time: str | None = None
+    nightly_report: bool | None = None
+    nightly_report_time: str | None = None
+
+
+def _clock(text: str, ctx: ToolContext, *, evening: bool) -> str:
+    clock = parse_clock(text, ctx.today, ctx.config.day_times, evening=evening)
+    if clock is None:
+        raise ToolError(f"could not understand the time {text!r}", "use 'HH:MM', e.g. '22:30'")
+    if evening and clock < NIGHTLY_EARLIEST:
+        raise ToolError(
+            "the nightly report sums up the day: its time must be between 12:00 and 23:59",
+            "ask the user for another time",
+        )
+    return f"{clock:%H:%M}"
 
 
 async def update_settings(args: SettingsArgs, ctx: ToolContext) -> ToolOutcome:
-    previous: dict[str, str | None] = {}
     changes: dict[str, str] = {}
     if args.calendar is not None:
         try:
-            calendar = Calendar(args.calendar.lower())
+            changes[KEY_CALENDAR] = Calendar(args.calendar.lower()).value
         except ValueError as exc:
             raise ToolError("calendar must be 'jalali' or 'gregorian'") from exc
-        previous[KEY_CALENDAR] = await ctx.settings.get(KEY_CALENDAR)
-        changes[KEY_CALENDAR] = calendar.value
-    if args.morning_briefing is not None:
-        previous[KEY_BRIEFING] = await ctx.settings.get(KEY_BRIEFING)
-        changes[KEY_BRIEFING] = "on" if args.morning_briefing else "off"
+    # Choosing a time also turns the message on, unless the user said "off".
+    if args.morning_briefing_time:
+        changes[KEY_BRIEFING_TIME] = _clock(args.morning_briefing_time, ctx, evening=False)
+    if args.morning_briefing is not None or args.morning_briefing_time:
+        changes[KEY_BRIEFING] = "off" if args.morning_briefing is False else "on"
+    if args.nightly_report_time:
+        changes[KEY_NIGHTLY_TIME] = _clock(args.nightly_report_time, ctx, evening=True)
+    if args.nightly_report is not None or args.nightly_report_time:
+        changes[KEY_NIGHTLY] = "off" if args.nightly_report is False else "on"
     if not changes:
-        raise ToolError("nothing to change", "settings: calendar, morning_briefing")
+        raise ToolError(
+            "nothing to change",
+            "settings: calendar, morning_briefing(_time), nightly_report(_time)",
+        )
+    previous = {key: await ctx.settings.get(key) for key in changes}
     for key, value in changes.items():
         await ctx.settings.set(key, value)
     summary = ", ".join(f"{k}={v}" for k, v in changes.items())
@@ -154,12 +184,22 @@ GENERAL_TOOLS = [
     ),
     Tool(
         name="update_settings",
-        description="Change the user's settings: calendar (jalali/gregorian), morning briefing.",
+        description=(
+            "Change the user's settings: calendar (jalali/gregorian), the morning briefing "
+            "(today's reminders) and the nightly report (today's expenses + tomorrow's "
+            "reminders): on/off and their times."
+        ),
         parameters={
             "type": "object",
             "properties": {
                 "calendar": {"type": "string", "enum": ["jalali", "gregorian"]},
                 "morning_briefing": {"type": "boolean"},
+                "morning_briefing_time": {"type": "string", "description": "HH:MM"},
+                "nightly_report": {"type": "boolean"},
+                "nightly_report_time": {
+                    "type": "string",
+                    "description": "HH:MM between 12:00 and 23:59",
+                },
             },
         },
         args_model=SettingsArgs,

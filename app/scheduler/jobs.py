@@ -1,24 +1,33 @@
-"""Scheduled jobs. Each opens its own database session."""
+"""Scheduled jobs. Each opens its own database session.
 
-from datetime import time, timedelta
+- `send_due_reminders` (every 20 s): reminder alerts.
+- `send_daily_digests` (every 30 s): the morning briefing and the nightly report, at the times
+  chosen in ⚙️ Settings (defaults from .env). A message missed while the bot was offline is
+  still sent within `DIGEST_GRACE` of its time, on the same day.
+"""
+
+from datetime import datetime, time, timedelta
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app import texts
 from app.bot import views
 from app.bot.keyboards.inline import reminder_notification
 from app.config import Settings
 from app.db.models import utcnow
+from app.services.expenses import ExpenseService
 from app.services.reminders import ReminderService
+from app.services.reports import ReportService
 from app.services.settings import SettingsService
 from app.utils.calendar import now_local
 
 # An alert sent more than this after its time is marked "sent late".
 LATE_AFTER = timedelta(minutes=2)
-# A missed morning briefing is still sent after a restart until this time.
-BRIEFING_CATCH_UP_UNTIL = time(12, 0)
+# A daily message missed while offline is still sent this long after its time (same day).
+DIGEST_GRACE = timedelta(hours=4)
 
 
 async def send_due_reminders(
@@ -69,10 +78,55 @@ async def send_morning_briefing(
             logger.warning("Could not send the morning briefing: {}", exc)
 
 
-async def catch_up_briefing(
+async def send_nightly_report(
     bot: Bot, sessionmaker: async_sessionmaker[AsyncSession], config: Settings
 ) -> None:
-    """After a restart in the morning, send the briefing that was missed."""
-    current = now_local(config.timezone).time()
-    if config.morning_briefing_time <= current < BRIEFING_CATCH_UP_UNTIL:
+    """Today's expenses, this month so far and tomorrow's reminders. At most once a day."""
+    now = now_local(config.timezone)
+    today = now.date()
+    async with sessionmaker() as session:
+        settings = SettingsService(session, config.default_calendar)
+        if not await settings.nightly_enabled() or await settings.nightly_sent_on() == today:
+            return
+        calendar = await settings.get_calendar()
+        expenses = ExpenseService(session, config.timezone, config.currency.value)
+        reports = ReportService(expenses)
+        day = await reports.build("day", today, calendar)
+        month = await reports.build("month", today, calendar)
+        tomorrow = await ReminderService(session, config.timezone, config.day_times).on_day(
+            today + timedelta(days=1)
+        )
+        await settings.mark_nightly_sent(today)
+        text = views.nightly_report(
+            day,
+            month,
+            tomorrow,
+            config.timezone,
+            calendar,
+            texts.CURRENCY_LABELS[config.currency.value],
+        )
+        try:
+            await bot.send_message(config.owner_id, text)
+        except TelegramAPIError as exc:
+            logger.warning("Could not send the nightly report: {}", exc)
+
+
+def is_due(now: datetime, at: time) -> bool:
+    """`at` has passed today, by less than DIGEST_GRACE."""
+    scheduled = now.replace(hour=at.hour, minute=at.minute, second=0, microsecond=0)
+    return scheduled <= now < scheduled + DIGEST_GRACE
+
+
+async def send_daily_digests(
+    bot: Bot, sessionmaker: async_sessionmaker[AsyncSession], config: Settings
+) -> None:
+    """Send the morning briefing and the nightly report when their time has come."""
+    now = now_local(config.timezone)
+    async with sessionmaker() as session:
+        settings = SettingsService(session, config.default_calendar)
+        briefing_at = await settings.briefing_time(config.morning_briefing_time)
+        nightly_at = await settings.nightly_time(config.daily_report_time)
+    if is_due(now, briefing_at):
         await send_morning_briefing(bot, sessionmaker, config)
+    if is_due(now, nightly_at):
+        await send_nightly_report(bot, sessionmaker, config)

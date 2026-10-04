@@ -31,6 +31,7 @@ CardKind = Literal[
     "reminders_cancelled",
     "report",
     "settings",
+    "file",
 ]
 
 
@@ -41,6 +42,7 @@ class Card:
     kind: CardKind
     action_id: int | None = None  # for ↩️ Undo / ✏️ Edit
     data: dict = field(default_factory=dict)
+    attachment: bytes | None = None  # "file" cards: the document to send
 
 
 @dataclass
@@ -155,7 +157,8 @@ class ToolRegistry:
 
 def build_registry() -> ToolRegistry:
     from app.agent.tools.expenses import EXPENSE_TOOLS
+    from app.agent.tools.files import FILE_TOOLS
     from app.agent.tools.general import GENERAL_TOOLS
     from app.agent.tools.reminders import REMINDER_TOOLS
 
-    return ToolRegistry([*EXPENSE_TOOLS, *REMINDER_TOOLS, *GENERAL_TOOLS])
+    return ToolRegistry([*EXPENSE_TOOLS, *REMINDER_TOOLS, *GENERAL_TOOLS, *FILE_TOOLS])

@@ -4,6 +4,39 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-10-04
+
+### Added
+- 📤 **Excel files from the chat** (no menu button: just ask). Built with openpyxl
+  (`app/services/export.py`), sent as a Telegram document, English, dates in the selected
+  calendar (Jalali as sortable `1405/07/12` text, Gregorian as real dates)
+  - Expenses (`export_expenses` tool): any range («این ماه», «مهر», "October", «۱۴۰۵», from / to
+    dates in either calendar, this / last week, month or year, all), categories and description
+    filters, chosen columns; a sheet of every expense with a total row, plus summary sheets per
+    category (share, pie chart), day, week or month (bar charts). Default: this month, with the
+    category and daily summaries (monthly for ranges over two months)
+  - Reminders (`export_reminders`): upcoming, today, tomorrow, this / next week or month, all, or
+    dates; repeat, pending alerts, importance and status
+  - Any table (`make_spreadsheet`): plans, schedules, lists, comparisons or a table from the
+    conversation, written by the AI; numbers stay numbers («۱۲۰۰۰۰», "120,000", "15%"), phone
+    numbers stay text, optional total row (years, dates and percentages are not added up)
+  - Without a model, «اکسل …» / "export to Excel" still sends the expenses of the named period
+- 🌙 **Nightly report** (default 22:00): today's expenses (total, categories, items) or a nudge
+  to record forgotten ones, this month so far with the daily average, and tomorrow's reminders
+  (important first)
+- ⚙️ Settings → **☀️ Morning briefing** and **🌙 Nightly report**: on / off, preset times or
+  any other time («۹:۳۰» is read as 21:30 for the nightly report); the agent can change them too
+  («گزارش شبانه رو ساعت ۱۱ بفرست»), with ↩️ Undo
+- Eval cases for Excel files and the nightly report time (`scripts/eval_agent.py`)
+
+### Changed
+- The 📤 Export Excel menu button is gone (files are asked for in the chat; the old button
+  still works as a message)
+- Daily messages are checked every 30 s against the times chosen in Settings, instead of a fixed
+  cron time; one missed while offline is still sent within 4 hours of its time (same day)
+- New dependency: `openpyxl`
+- CSV export is not planned any more (decided in v0.5: xlsx only)
+
 ## [0.4.0] - 2026-10-04
 
 ### Added
@@ -138,6 +171,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - GitHub Actions CI: ruff lint + format check, pytest, Docker image build
 - Bilingual (English / Persian) README
 
+[0.5.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.2.0

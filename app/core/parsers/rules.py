@@ -14,7 +14,7 @@ How time expressions are assigned (the sentence is split into clauses at , ، ; 
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, time
 
 from app.core.normalizer import detect_language, normalize
 from app.core.parsers.datetime_parser import Atom, B, DayTimes, E, Moment, find_atoms, resolve
@@ -175,3 +175,25 @@ def parse_reminder(raw: str, today: date, day_times: DayTimes) -> ReminderParse:
         notify_at_event=notify_at_event,
         has_trigger=trigger is not None,
     )
+
+
+# --- A clock time on its own ("21:30", «۹ شب», "9pm") ---
+
+_BARE_TIME = re.compile(r"^\s*([0-9۰-۹]{1,2})(?:[:٫.]([0-9۰-۹]{2}))?\s*$")
+
+
+def parse_clock(
+    raw: str, today: date, day_times: DayTimes, *, evening: bool = False
+) -> time | None:
+    """A clock time typed alone. An hour that could be AM or PM («ساعت ۱۰», "10") is read as
+    PM when `evening` (e.g. the nightly report's time), otherwise as AM."""
+    text = f"ساعت {raw.strip()}" if _BARE_TIME.match(raw) else raw
+    moment = parse_reminder(text, today, day_times).event
+    if moment.time is None:
+        return None
+    clock = moment.time
+    if moment.ambiguous and clock.hour == 0:  # a bare "12" is noon
+        return clock.replace(hour=12)
+    if moment.ambiguous and evening and clock.hour < 12:
+        return clock.replace(hour=clock.hour + 12)
+    return clock

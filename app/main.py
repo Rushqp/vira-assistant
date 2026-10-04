@@ -25,7 +25,6 @@ from app.bot.middlewares.owner_only import OwnerOnlyMiddleware
 from app.config import Settings, get_settings
 from app.db.session import create_engine, create_sessionmaker, run_migrations
 from app.llm.providers import ProviderChain
-from app.scheduler.jobs import catch_up_briefing
 from app.scheduler.setup import create_scheduler
 from app.services.settings import SettingsService
 
@@ -96,7 +95,6 @@ async def run_bot(config: Settings) -> None:
         )
         await llm.check()  # informational only: the model may still be downloading
         scheduler.start()
-        await catch_up_briefing(bot, sessionmaker, config)
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
         if scheduler.running:

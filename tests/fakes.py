@@ -14,6 +14,7 @@ from aiogram.methods import (
     EditMessageReplyMarkup,
     EditMessageText,
     SendChatAction,
+    SendDocument,
     SendMessage,
     TelegramMethod,
 )
@@ -98,6 +99,7 @@ class RecordingSession(BaseSession):
         self.edits: list[str] = []
         self.markup: InlineKeyboardMarkup | None = None  # last inline keyboard shown
         self.alerts: list[str] = []  # callback answers
+        self.documents: list[tuple[str, bytes, str]] = []  # (file name, content, caption)
 
     async def make_request(self, bot, method: TelegramMethod, timeout=None):  # noqa: ASYNC109
         if isinstance(method, SendMessage):
@@ -118,6 +120,12 @@ class RecordingSession(BaseSession):
             return True
         if isinstance(method, SendChatAction):
             return True
+        if isinstance(method, SendDocument):
+            document = method.document
+            self.documents.append(
+                (document.filename, document.data, method.caption or "")  # type: ignore[union-attr]
+            )
+            return _message("(document)", from_bot=True).as_(bot)
         raise NotImplementedError(type(method).__name__)
 
     async def close(self) -> None:

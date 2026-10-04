@@ -13,7 +13,6 @@ BTN_MONTH_REPORT = "📅 Month Report"
 BTN_REMINDERS = "📋 Reminders"
 BTN_TODOS = "✅ Today To-Dos"
 BTN_NOTES = "📝 Notes"
-BTN_EXPORT = "📤 Export Excel"
 BTN_SETTINGS = "⚙️ Settings"
 
 INPUT_PLACEHOLDER = "Type or send a voice message…"
@@ -49,7 +48,12 @@ HELP = (
     "• Expenses, several in one message:\n"
     "  — <i>۳ میلیون خرید خونه دادم، ۱۰ لیتر بنزین هم ۱۰۰ هزار</i>\n"
     "  — <i>Paid 3 million for groceries and 100k for fuel</i>\n"
-    "• Reports: 📊 Today / 📅 Month, or write <i>گزارش این هفته</i> · <i>report last month</i>\n\n"
+    "• Reports: 📊 Today / 📅 Month, or write <i>گزارش این هفته</i> · <i>report last month</i>\n"
+    "• Excel files, just ask:\n"
+    "  — <i>اکسل هزینه‌های این ماه رو بده</i>\n"
+    "  — <i>Excel of last month's food expenses, totals per week</i>\n"
+    "  — <i>یه جدول برنامه ورزشی هفتگی به صورت اکسل بده</i>\n"
+    "• Every night at 22:00: today's expenses and tomorrow's reminders (⚙️ Settings)\n\n"
     "<b>Commands</b>\n"
     "/menu — show the main menu\n"
     "/new — start a new chat\n"
@@ -271,6 +275,9 @@ AGENT_LIST_ITEM = "• {text}"
 AGENT_SETTINGS_CHANGED = "⚙️ <b>Settings changed</b>"
 AGENT_SETTING_CALENDAR = "📅 Calendar: {value}"
 AGENT_SETTING_BRIEFING = "☀️ Morning briefing: {value}"
+AGENT_SETTING_BRIEFING_TIME = "☀️ Morning briefing at {value}"
+AGENT_SETTING_NIGHTLY = "🌙 Nightly report: {value}"
+AGENT_SETTING_NIGHTLY_TIME = "🌙 Nightly report at {value}"
 AGENT_ASK_ALERTS = "\n\n🔔 <i>Notifies at the start. Want an earlier reminder too?</i>"
 AGENT_UNDONE_LINE = "\n\n↩️ <i>Undone</i>"
 AGENT_ALREADY_UNDONE = "This was already undone."
@@ -325,6 +332,58 @@ AI_DOWN = (
     "until one is back."
 )
 
+# --- Nightly report (scheduler) ---
+NIGHTLY_TITLE = "🌙 <b>Your day</b> · {today}"
+NIGHTLY_SPENT = "💰 Spent today: <b>{amount}</b> · {count}"
+NIGHTLY_NOTHING = "💰 No expenses recorded today. Spent anything? Just tell me what you bought."
+NIGHTLY_MONTH = "📅 This month so far: <b>{amount}</b> · daily average {average}"
+NIGHTLY_TOMORROW = "⏰ <b>Tomorrow</b>"
+NIGHTLY_TOMORROW_EMPTY = "⏰ Nothing scheduled for tomorrow."
+NIGHTLY_ITEM = "• {star}{time} — {subject}"
+
+# --- Excel files (English; dates in the selected calendar) ---
+GREGORIAN_MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June", "July", "August", "September",
+    "October", "November", "December",
+)  # fmt: skip
+XLSX_EXPENSES_TITLE = "Expenses"
+XLSX_REMINDERS_TITLE = "Reminders"
+XLSX_SHEET_EXPENSES = "Expenses"
+XLSX_SHEET_CATEGORIES = "By category"
+XLSX_SHEET_DAYS = "By day"
+XLSX_SHEET_WEEKS = "By week"
+XLSX_SHEET_MONTHS = "By month"
+XLSX_SHEET_REMINDERS = "Reminders"
+XLSX_SHEET_DEFAULT = "Sheet"
+XLSX_TOTAL = "Total"
+XLSX_YES = "Yes"
+XLSX_NO = "No"
+XLSX_ALL = "All"
+XLSX_UPCOMING = "Upcoming"
+XLSX_FROM = "From {date}"
+XLSX_EXPENSE_HEADERS = {
+    "date": "Date",
+    "weekday": "Weekday",
+    "time": "Time",
+    "description": "Description",
+    "category": "Category",
+    "quantity": "Quantity",
+    "amount": "Amount ({currency})",
+}
+XLSX_CATEGORY_HEADERS = ("Category", "Amount ({currency})", "Share", "Count")
+XLSX_DAY_HEADERS = ("Date", "Weekday", "Amount ({currency})", "Count")
+XLSX_WEEK_HEADERS = ("Week", "Amount ({currency})", "Count")
+XLSX_MONTH_HEADERS = ("Month", "Amount ({currency})", "Count")
+XLSX_REMINDER_HEADERS = (
+    "Date", "Weekday", "Time", "Subject", "Repeat", "Alerts", "Important", "Status",
+)  # fmt: skip
+XLSX_STATUS = {"active": "Active", "done": "Done", "cancelled": "Cancelled"}
+EXPORT_CAPTION_EXPENSES = "📊 <b>{title}</b>\n{count} · total {total}"
+EXPORT_CAPTION_REMINDERS = "⏰ <b>{title}</b>\n{count} reminders"
+EXPORT_CAPTION_TABLE = "📄 <b>{title}</b>"
+EXPORT_EMPTY = "No expenses in that period, so there is no file to send."
+EXPENSE_COUNT = {"one": "1 expense", "many": "{count} expenses"}
+
 # --- Settings ---
 SETTINGS = (
     "⚙️ <b>Settings</b>\n\n"
@@ -332,14 +391,34 @@ SETTINGS = (
     "🕒 Timezone: <b>{timezone}</b>\n"
     "🗓 Today: <b>{today}</b>\n"
     "☀️ Morning briefing: <b>{briefing}</b>\n"
+    "🌙 Nightly report: <b>{nightly}</b>\n"
     "🤖 AI: <b>{model}</b> <i>({profile} profile)</i>\n"
     "🎙 Voice: <b>{stt}</b>"
 )
 BRIEFING_ON = "on ({time})"
 BRIEFING_OFF = "off"
-BTN_BRIEFING_ON = "☀️ Turn morning briefing on"
-BTN_BRIEFING_OFF = "☀️ Turn morning briefing off"
-BRIEFING_CHANGED = "✅ Morning briefing {state}"
+BTN_BRIEFING_SETTINGS = "☀️ Morning briefing"
+BTN_NIGHTLY_SETTINGS = "🌙 Nightly report"
+
+# --- ⚙️ Settings → ☀️ Morning briefing / 🌙 Nightly report ---
+DIGEST_NAMES = {"briefing": "Morning briefing", "nightly": "Nightly report"}
+DIGEST_TITLES = {"briefing": "☀️ <b>Morning briefing</b>", "nightly": "🌙 <b>Nightly report</b>"}
+DIGEST_ABOUT = {
+    "briefing": "Today's reminders, important ones first (skipped on days without reminders).",
+    "nightly": "Today's expenses, this month so far and tomorrow's reminders.",
+}
+DIGEST_STATE_ON = "Every day at <b>{time}</b>"
+DIGEST_STATE_OFF = "<b>Off</b> (time: {time})"
+DIGEST_HELP = "<i>Pick a time, or tell me in the chat, e.g. «گزارش شبانه رو ساعت ۱۱ بفرست».</i>"
+BTN_DIGEST_ON = "✅ Turn on"
+BTN_DIGEST_OFF = "⏸ Turn off"
+BTN_DIGEST_OTHER = "🕐 Other time"
+DIGEST_ASK_TIME = "🕐 Send the time, e.g. <i>21:30</i> or <i>۹ شب</i>."
+DIGEST_TIME_RETRY = "I couldn't read that time. Send it like <i>21:30</i>, or /cancel."
+DIGEST_NIGHTLY_RANGE = (
+    "The nightly report sums up the day, so its time must be between 12:00 and 23:59."
+)
+DIGEST_CHANGED = "✅ {name}: {state}"
 CALENDAR_NAMES = {"jalali": "Jalali (Shamsi)", "gregorian": "Gregorian"}
 BTN_SWITCH_CALENDAR = "📅 Switch to {calendar}"
 CALENDAR_CHANGED = "✅ Calendar set to {calendar}"

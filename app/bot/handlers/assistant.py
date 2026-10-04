@@ -23,11 +23,13 @@ from app.agent.actions import ActionLog
 from app.agent.core import Agent, AgentUnavailable
 from app.agent.tools import Card, ToolContext
 from app.agent.tools.expenses import save_expense_draft
+from app.agent.tools.files import ExportExpensesArgs, export_expenses
 from app.bot.agent_ui import (
     UiDeps,
     render_card,
     render_reminder,
     render_saved_expenses,
+    send_file,
     send_notices,
 )
 from app.bot.keyboards.inline import (
@@ -40,7 +42,12 @@ from app.bot.keyboards.inline import (
 from app.bot.states import AgentForm
 from app.bot.streaming import MessageStreamer
 from app.config import Calendar, Settings
-from app.core.parsers.expense_rules import has_expense_intent, parse_report_request
+from app.core.parsers.expense_rules import (
+    has_expense_intent,
+    has_export_intent,
+    parse_period,
+    parse_report_request,
+)
 from app.core.parsers.rules import has_reminder_trigger
 from app.llm.client import LanguageModel, LLMError
 from app.services.chat import ChatService
@@ -132,6 +139,9 @@ async def _show(target: Message, text: str, markup=None, edit: bool = False) -> 
 async def send_cards(message: Message, cards: list[Card], deps: Deps) -> None:
     ui = deps.ui()
     for card in cards:
+        if card.kind == "file":
+            await send_file(message, card, ui)
+            continue
         rendered = await render_card(card, ui)
         if rendered:
             await message.answer(rendered[0], reply_markup=rendered[1])
@@ -239,6 +249,9 @@ async def fallback(deps: Deps, text: str, hint: str) -> None:
     from app.bot.handlers import reports
 
     message, state, data = deps.message, deps.state, deps
+    if not hint and has_export_intent(text):
+        await send_default_export(deps, text)
+        return
     if hint == texts.AGENT_HINT_REMINDER or has_reminder_trigger(text):
         flow = await reminder_rules._flow(data.config, state, data.llm, data.settings_service)
         await reminder_rules.start(message, flow, text)
@@ -257,6 +270,27 @@ async def fallback(deps: Deps, text: str, hint: str) -> None:
         await expense_rules.start(message, flow, text)
         return
     await stream_chat_reply(deps, text)
+
+
+# Rule-based report periods → export periods
+_EXPORT_PERIODS = {
+    "today": "today",
+    "yesterday": "yesterday",
+    "week": "this_week",
+    "last_week": "last_week",
+    "month": "this_month",
+    "last_month": "last_month",
+}
+
+
+async def send_default_export(deps: Deps, text: str) -> None:
+    """«اکسل این ماه» without a model: the expenses of the named period (default this month)."""
+    period = _EXPORT_PERIODS.get(parse_period(text) or "month", "this_month")
+    outcome = await export_expenses(ExportExpensesArgs(period=period), deps.tool_context(text))
+    if outcome.card is None:
+        await deps.message.answer(texts.EXPORT_EMPTY)
+        return
+    await send_cards(deps.message, [outcome.card], deps)
 
 
 async def stream_chat_reply(deps: Deps, question: str) -> None:

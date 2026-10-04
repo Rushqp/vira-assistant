@@ -12,9 +12,9 @@ from tests.fakes import FakeLLM
 
 def test_main_menu_layout():
     rows = [[b.text for b in row] for row in main_menu().keyboard]
-    assert [len(r) for r in rows] == [3, 3, 3, 2]
+    assert [len(r) for r in rows] == [3, 3, 3, 1]
     assert rows[0] == [texts.BTN_NEW_CHAT, texts.BTN_CHATS, texts.BTN_NEW_REMINDER]
-    assert rows[-1] == [texts.BTN_EXPORT, texts.BTN_SETTINGS]
+    assert rows[-1] == [texts.BTN_SETTINGS]  # Excel files are asked for in the chat (v0.5)
 
 
 def test_every_menu_button_is_handled():
@@ -44,6 +44,8 @@ def test_render_settings(config):
     assert "Jalali (Shamsi)" in text
     assert "qwen3:4b · Local" in text
     assert "Asia/Tehran" in text
+    assert "Morning briefing: <b>on (08:00)</b>" in text
+    assert "Nightly report: <b>on (22:00)</b>" in text
 
 
 def test_dispatcher_builds(config, sessionmaker):

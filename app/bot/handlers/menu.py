@@ -13,7 +13,6 @@ router = Router(name="menu")
 
 # button label -> (feature name, target version)
 PLANNED: dict[str, tuple[str, str]] = {
-    texts.BTN_EXPORT: ("Excel export", "v0.5"),
     texts.BTN_TODOS: ("To-dos", "v0.7"),
     texts.BTN_NOTES: ("Notes", "v0.7"),
 }

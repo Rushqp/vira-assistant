@@ -22,7 +22,7 @@ from app.core.parsers.amount_parser import Currency, to_currency
 from app.core.parsers.expense_rules import ExpenseParse
 from app.core.textmatch import best_match
 from app.db.models import Category, CategoryKeyword, Expense
-from app.services.reminders import to_utc
+from app.services.reminders import from_utc, to_utc
 
 OTHER = "Other"
 
@@ -393,6 +393,13 @@ class ExpenseService:
             .order_by(Expense.spent_at.desc(), Expense.id.desc())
         )
         return list(rows.unique().all())
+
+    async def first_day(self) -> date | None:
+        """Local date of the oldest expense (None when there are none)."""
+        oldest = await self.session.scalar(select(func.min(Expense.spent_at)))
+        if oldest is None:
+            return None
+        return from_utc(oldest, self.timezone).date()
 
     async def total_between(self, start: date, end: date) -> int:
         lo = to_utc(datetime.combine(start, time(0), self.timezone))
