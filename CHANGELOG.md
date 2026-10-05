@@ -4,6 +4,47 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] - 2026-10-05
+
+### Added
+- 📦 **One-command install**: `curl -fsSL …/install.sh | bash` installs git and Docker, downloads
+  Vira, asks for the bot token, your ID, the API keys and the profile (suggested from the server's
+  RAM), writes `.env` (readable only by you) and starts the bot. Running it again updates Vira and
+  keeps the settings; every answer can also be given as an environment variable
+- 🇮🇷 **Servers in Iran**:
+  - `API_PROXY`: a proxy for the AI and speech APIs and for downloading the local models
+    (Ollama, Whisper); the local Ollama itself is never proxied
+  - the installer asks for a Docker Hub mirror and a PyPI mirror (`PIP_INDEX_URL`, used while
+    building), and installs Docker from the distribution's packages when download.docker.com
+    refuses
+  - a proxy running on the same server is reachable as `host.docker.internal`;
+    `TELEGRAM_PROXY` also accepts the `socks5h://` spelling
+- 📖 **[docs/INSTALL.md](docs/INSTALL.md)** (English / Persian): choosing a profile from `free -h`,
+  `nproc` and `df -h`, swap, the keys, the installer or a manual install, checks, a server in Iran,
+  daily care and troubleshooting
+- `/status`: version, uptime, the AI model answering now and the paused ones, the voice engine,
+  memory use, your data, database size, the last backup and the errors since the start
+- ⚠️ **Error reports**: when a message, a button or a scheduled job fails, the owner gets a short
+  report in Telegram (at most one every 10 minutes); a failing button shows an alert
+- **Health check and self-restart**: a heartbeat every 30 s, a Docker health check
+  (`python -m app.health`), and a watchdog that restarts a bot hanging for 5 minutes
+- Screenshots in the README: real bot messages with sample data, drawn by
+  `scripts/screenshots.py`
+- CI fails when test coverage drops below 90% (`pytest --cov`)
+
+### Changed
+- **Less memory**: the Excel library (with numpy) and Alembic are no longer loaded at startup
+  (migrations run in a child process), a local Whisper model leaves memory after 10 idle minutes,
+  and `MALLOC_ARENA_MAX=2` limits allocator overhead. The bot uses about 210 MB of RAM when idle
+- **Ollama gets an 8k context** (`OLLAMA_CONTEXT_LENGTH`): the agent's instructions and tools take
+  about 5k tokens and Ollama's CPU default of 4k cut off their beginning. Flash attention and a
+  q8_0 cache keep the context in about half the memory
+- A failed model download no longer keeps the bot from starting: it answers with the API models,
+  and the next `docker compose up -d` tries again
+- The largest-expense line of reports shows the amount first, so a Persian description no longer
+  separates the amount from its unit
+- README: quick start with the installer, screenshots, monitoring, memory per profile
+
 ## [0.7.0] - 2026-10-05
 
 ### Added
@@ -235,6 +276,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - GitHub Actions CI: ruff lint + format check, pytest, Docker image build
 - Bilingual (English / Persian) README
 
+[1.0.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v1.0.0
 [0.7.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Rushqp/vira-assistant/releases/tag/v0.5.0

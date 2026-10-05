@@ -209,6 +209,7 @@ async def test_weekly_backup(config, sessionmaker, monkeypatch):
 
     async def fake_send(bot, cfg, calendar, caption=None):
         sent.append(calendar)
+        return datetime(2026, 10, 10, 9, 0, tzinfo=TZ)
 
     monkeypatch.setattr(jobs, "send_backup", fake_send)
 

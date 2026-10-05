@@ -1,6 +1,6 @@
 [project]
 name = "vira-assistant"
-version = "0.7.0"
+version = "1.0.0"
 description = "Personal AI assistant on Telegram — reminders, expenses, reports, notes and voice. Local LLM, Persian + English."
 readme = "README.md"
 license = "MIT"
@@ -17,6 +17,7 @@ dependencies = [
     "jdatetime>=5.0",
     "loguru>=0.7",
     "openai>=1.50,<4",
+    "httpx[socks]>=0.27",
     "openpyxl>=3.1",
     "faster-whisper>=1.1",
     "tzdata>=2024.1",
@@ -26,6 +27,7 @@ dependencies = [
 dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.25",
+    "pytest-cov>=6",
     "ruff>=0.8",
 ]
 
@@ -51,3 +53,14 @@ ignore = [
     "RUF001", "RUF002", "RUF003",  # emoji / Persian characters are intentional
     "RUF012",  # SQLAlchemy `__table_args__` dicts are class attributes by design
 ]
+
+[tool.coverage.run]
+source = ["app"]
+# sys.monitoring: on Python 3.12 the default C tracer misses ~450 lines that do run (mostly the
+# aiogram handlers), so the same tests read 86 % instead of 92 %. It is the default from 3.14.
+core = "sysmon"
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+skip_covered = true

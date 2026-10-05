@@ -4,23 +4,22 @@ Every builder returns an `ExportFile` (file name, bytes, title). Dates follow th
 calendar: Jalali dates are written as sortable text (`1405/07/12`), Gregorian ones as real date
 cells. Amounts are numbers with a thousands format. Totals are written as values (not formulas)
 so phone viewers that don't calculate still show them.
+
+openpyxl is imported only when a file is built: it (and numpy, which it loads when installed)
+would otherwise take ~40 MB of RAM for the whole life of the bot.
 """
+
+from __future__ import annotations
 
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from io import BytesIO
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 import jdatetime
-from openpyxl import Workbook
-from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
-from openpyxl.chart import BarChart, PieChart, Reference
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.worksheet import Worksheet
 
 from app import texts
 from app.config import Calendar
@@ -31,6 +30,10 @@ from app.services.reminders import from_utc, monthly_date
 from app.services.reports import month_name
 from app.utils.calendar import JALALI_MONTHS
 
+if TYPE_CHECKING:
+    from openpyxl import Workbook
+    from openpyxl.worksheet.worksheet import Worksheet
+
 EXPENSE_COLUMNS = ("date", "weekday", "time", "description", "category", "quantity", "amount")
 SUMMARIES = ("category", "day", "week", "month")
 
@@ -38,9 +41,7 @@ SUMMARIES = ("category", "day", "week", "month")
 # only the ones with expenses beyond them; charts are added up to the same sizes.
 FULL_DAYS, FULL_WEEKS, FULL_MONTHS = 62, 26, 24
 
-HEADER_FILL = PatternFill("solid", fgColor="2F5597")
-HEADER_FONT = Font(bold=True, color="FFFFFF")
-BOLD = Font(bold=True)
+HEADER_COLOR = "2F5597"
 MONEY = "#,##0"
 DECIMAL = "#,##0.00"
 PERCENT = "0.0%"
@@ -115,10 +116,18 @@ def _weekday(day: date) -> str:
 # --- Sheets ---
 
 
+def _new_workbook() -> Workbook:
+    from openpyxl import Workbook
+
+    return Workbook()
+
+
 def _style_header(ws: Worksheet) -> None:
+    from openpyxl.styles import Alignment, Font, PatternFill
+
     for cell in ws[1]:
-        cell.font = HEADER_FONT
-        cell.fill = HEADER_FILL
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor=HEADER_COLOR)
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.freeze_panes = "A2"
 
@@ -131,6 +140,9 @@ def _write_table(
     total: list[Any] | None = None,
 ) -> None:
     """Header, rows (with a filter), an optional bold total row; `formats` by column (1-based)."""
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
     _append(ws, headers)
     _style_header(ws)
     for row in rows:
@@ -140,7 +152,7 @@ def _write_table(
     if total is not None:
         _append(ws, total)
         for cell in ws[ws.max_row]:
-            cell.font = BOLD
+            cell.font = Font(bold=True)
     for column, number_format in (formats or {}).items():
         for (cell,) in ws.iter_rows(min_row=2, min_col=column, max_col=column):
             if isinstance(cell.value, int | float | date) and not isinstance(cell.value, bool):
@@ -151,6 +163,8 @@ def _write_table(
 def _append(ws: Worksheet, row: list[Any]) -> None:
     """Add a row. Text is always text: control characters are dropped (Excel refuses them) and
     "=…" stays a string instead of becoming a formula."""
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+
     ws.append([ILLEGAL_CHARACTERS_RE.sub("", v) if isinstance(v, str) else v for v in row])
     for cell in ws[ws.max_row]:
         if cell.data_type == "f":
@@ -166,6 +180,8 @@ def _display(value: Any) -> str:
 
 
 def _fit_columns(ws: Worksheet) -> None:
+    from openpyxl.utils import get_column_letter
+
     widths: dict[int, int] = defaultdict(int)
     for row in ws.iter_rows():
         for cell in row:
@@ -177,6 +193,8 @@ def _fit_columns(ws: Worksheet) -> None:
 
 def _chart(ws: Worksheet, kind: str, title: str, rows: int, values_col: int, anchor: str) -> None:
     """A pie (shares) or bar chart of column `values_col` against the labels in column A."""
+    from openpyxl.chart import BarChart, PieChart, Reference
+
     chart = PieChart() if kind == "pie" else BarChart()
     chart.title = title
     data = Reference(ws, min_col=values_col, min_row=1, max_row=rows + 1)
@@ -347,7 +365,7 @@ def build_expenses(spec: ExpenseExport) -> ExportFile:
 
     label, slug = range_label(spec.start, spec.end, spec.label_calendar or spec.calendar)
     title = spec.title or f"{texts.XLSX_EXPENSES_TITLE} · {label}"
-    wb = Workbook()
+    wb = _new_workbook()
     ws = wb.active
     ws.title = texts.XLSX_SHEET_EXPENSES
     rows = [[_expense_value(c, e, spec) for c in columns] for _, e in items]
@@ -401,7 +419,7 @@ class ReminderExport:
 
 def build_reminders(spec: ReminderExport) -> ExportFile:
     title = spec.title or f"{texts.XLSX_REMINDERS_TITLE} · {spec.label}"
-    wb = Workbook()
+    wb = _new_workbook()
     ws = wb.active
     ws.title = texts.XLSX_SHEET_REMINDERS
     rows = []
@@ -486,7 +504,7 @@ def file_slug(title: str) -> str:
 
 
 def build_table(title: str, sheets: list[TableSheet]) -> ExportFile:
-    wb = Workbook()
+    wb = _new_workbook()
     used: set[str] = set()
     rows_total = 0
     for index, sheet in enumerate(sheets):

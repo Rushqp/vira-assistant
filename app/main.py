@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+import subprocess
 import sys
+import time
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -10,12 +12,14 @@ from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramUnauthorizedError
 from aiogram.types import BotCommand
+from apscheduler.events import EVENT_JOB_ERROR
 from loguru import logger
 from pydantic import ValidationError
 
 from app import __version__, texts
 from app.agent.core import Agent
 from app.agent.tools import build_registry
+from app.bot.errors import ErrorReporter
 from app.bot.handlers import build_router
 from app.bot.middlewares.db import DbSessionMiddleware
 from app.bot.middlewares.logging import LoggingMiddleware
@@ -24,7 +28,8 @@ from app.bot.middlewares.notices import ModelNoticeMiddleware
 from app.bot.middlewares.owner_only import OwnerOnlyMiddleware
 from app.bot.middlewares.voice import VoiceMiddleware
 from app.config import Settings, get_settings
-from app.db.session import create_engine, create_sessionmaker, run_migrations
+from app.db.session import create_engine, create_sessionmaker, migrate_in_subprocess
+from app.health import Watchdog
 from app.llm.providers import ProviderChain
 from app.scheduler.setup import create_scheduler
 from app.services.settings import SettingsService
@@ -52,7 +57,11 @@ def build_dispatcher(
     config: Settings, sessionmaker, llm: ProviderChain, stt: SpeechChain | None = None
 ) -> Dispatcher:
     agent = Agent(llm, build_registry())
-    dp = Dispatcher(config=config, llm=llm, agent=agent, stt=stt)
+    errors = ErrorReporter(config.owner_id)
+    dp = Dispatcher(
+        config=config, llm=llm, agent=agent, stt=stt, errors=errors, started_at=time.monotonic()
+    )
+    dp.errors.register(errors.on_update_error)
     dp.update.outer_middleware(OwnerOnlyMiddleware(config.owner_id))
     dp.update.outer_middleware(LoggingMiddleware())
     dp.message.outer_middleware(VoiceMiddleware())  # voice → text first, then like typed text
@@ -85,7 +94,11 @@ async def run_bot(config: Settings) -> None:
     )
     await apply_saved_model(llm, sessionmaker, config)
     dp = build_dispatcher(config, sessionmaker, llm, stt)
-    scheduler = create_scheduler(bot, sessionmaker, config)
+    scheduler = create_scheduler(bot, sessionmaker, config, stt)
+    scheduler.add_listener(dp["errors"].on_job_error(bot), EVENT_JOB_ERROR)
+    watchdog = Watchdog()  # Docker healthcheck + restart when the loop is stuck
+    watchdog.start_thread()
+    heartbeat = asyncio.create_task(watchdog.run())
 
     try:
         await bot.set_my_commands(
@@ -104,6 +117,7 @@ async def run_bot(config: Settings) -> None:
         scheduler.start()
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
+        heartbeat.cancel()
         if scheduler.running:
             scheduler.shutdown(wait=False)
         await bot.session.close()
@@ -123,7 +137,10 @@ def main() -> None:
 
     setup_logging(config.log_level)
     logger.info("Applying database migrations…")
-    run_migrations(config.database_url)
+    try:
+        migrate_in_subprocess(config.database_url)
+    except subprocess.CalledProcessError:
+        sys.exit("The database migrations failed (see the error above).")
     try:
         asyncio.run(run_bot(config))
     except TelegramUnauthorizedError:

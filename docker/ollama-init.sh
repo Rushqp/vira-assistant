@@ -21,5 +21,10 @@ if ollama list | awk 'NR > 1 { print $1 }' | grep -qx -e "$MODEL" -e "$MODEL:lat
     echo "Model $MODEL is already available."
 else
     echo "Pulling $MODEL (first start only, this can take a while)..."
-    ollama pull "$MODEL"
+    # A failed download must not keep the bot from starting: it answers with the API models (or
+    # in basic mode), and the next `docker compose up -d` tries again (a pull resumes).
+    ollama pull "$MODEL" || ollama pull "$MODEL" || {
+        echo "Could not download $MODEL: the bot starts without the local model."
+        echo "Try again later with 'docker compose up -d' (blocked downloads: API_PROXY, docs/INSTALL.md)."
+    }
 fi

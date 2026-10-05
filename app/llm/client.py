@@ -116,6 +116,11 @@ def translate_error(exc: Exception, model: str) -> LLMError:
     return LLMError("failed", str(exc))
 
 
+def proxied_http_client(proxy: str | None) -> Any:
+    """An HTTP client that goes through `proxy` (http://, socks5://), or None for the default."""
+    return openai.DefaultAsyncHttpxClient(proxy=proxy) if proxy else None
+
+
 class LLMClient:
     def __init__(
         self,
@@ -131,6 +136,7 @@ class LLMClient:
         reasoning_effort: str | None = None,
         system_suffix: str = "",
         default_headers: dict[str, str] | None = None,
+        proxy: str | None = None,
     ) -> None:
         self.name = name
         self.model = model
@@ -145,6 +151,7 @@ class LLMClient:
             timeout=timeout,
             max_retries=0,
             default_headers=default_headers,
+            http_client=proxied_http_client(proxy),
         )
 
     @property

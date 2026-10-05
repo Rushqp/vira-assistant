@@ -90,6 +90,7 @@ def make_client(config: Settings, provider: str, model: str | None = None) -> LL
             reasoning_effort=_reasoning_for(provider, model),
             system_suffix=_suffix_for(model),
             default_headers=PRESETS[provider].get("headers"),
+            proxy=config.api_proxy,
         )
     if provider == "local":
         model = model or config.effective_llm_model

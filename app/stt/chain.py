@@ -46,12 +46,13 @@ def planned_engines(config: Settings) -> list[tuple[str, str]]:
 def build_engines(config: Settings) -> list:
     engines: list = []
     for name, model in planned_engines(config):
+        proxy = config.api_proxy
         if name == "groq":
-            engines.append(GroqWhisper(config.provider_key("groq") or "", model))
+            engines.append(GroqWhisper(config.provider_key("groq") or "", model, proxy=proxy))
         elif name == "gemini":
-            engines.append(GeminiAudio(config.provider_key("gemini") or "", model))
+            engines.append(GeminiAudio(config.provider_key("gemini") or "", model, proxy=proxy))
         else:
-            engines.append(LocalWhisper(model, str(MODELS_DIR)))
+            engines.append(LocalWhisper(model, str(MODELS_DIR), proxy=proxy))
     return engines
 
 
@@ -91,6 +92,12 @@ class SpeechChain:
 
     def drain_notices(self) -> list[Notice]:
         return self.failover.drain()
+
+    async def release_idle(self) -> None:
+        """Free the RAM of a local model that hasn't been used for a while (scheduler)."""
+        for engine in self.engines:
+            if isinstance(engine, LocalWhisper):
+                engine.release_if_idle()
 
     async def close(self) -> None:
         for engine in self.engines:

@@ -16,6 +16,7 @@ from app.bot.handlers import (
     reports,
     settings,
     start,
+    status,
     todos,
 )
 
@@ -27,6 +28,7 @@ def build_router() -> Router:
     # `fallback` for everything that isn't text.
     router.include_routers(
         start.router,
+        status.router,
         settings.router,
         ai_models.router,
         categories.router,

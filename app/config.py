@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     bot_token: SecretStr
     owner_id: int
     telegram_proxy: str | None = None
+    api_proxy: str | None = None  # for the AI / speech APIs (e.g. a server in Iran)
 
     # Locale
     tz: str = "Asia/Tehran"
@@ -102,6 +103,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "telegram_proxy",
+        "api_proxy",
         "llm_model",
         "stt_model",
         "gemini_api_key",
@@ -120,6 +122,14 @@ class Settings(BaseSettings):
     def _empty_to_none(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("telegram_proxy")
+    @classmethod
+    def _telegram_proxy_scheme(cls, value: str | None) -> str | None:
+        # aiohttp-socks resolves names at the proxy anyway and rejects the socks5h:// spelling
+        if value and value.lower().startswith("socks5h://"):
+            return "socks5://" + value[len("socks5h://") :]
         return value
 
     @field_validator("tz")

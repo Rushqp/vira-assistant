@@ -159,9 +159,11 @@ async def send_weekly_backup(
             await settings.mark_backup(slot)
             return
     try:
-        await send_backup(bot, config, calendar)
+        sent = await send_backup(bot, config, calendar)
     except (TelegramAPIError, BackupError, OSError, sqlite3.Error) as exc:
         logger.warning("Weekly backup not sent: {} (will retry)", exc)
         return
     async with sessionmaker() as session:
-        await SettingsService(session, config.default_calendar).mark_backup(slot)
+        settings = SettingsService(session, config.default_calendar)
+        await settings.mark_backup(slot)
+        await settings.mark_backup_sent(sent)

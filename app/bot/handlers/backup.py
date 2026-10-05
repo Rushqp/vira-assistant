@@ -20,7 +20,7 @@ from app import __version__, texts
 from app.bot.keyboards.inline import BackupCb, backup_menu, restore_confirm
 from app.bot.states import BackupForm
 from app.config import Calendar, Settings
-from app.db.session import known_revisions, run_migrations
+from app.db.session import known_revisions, migrate_in_subprocess
 from app.services.backup import (
     COUNTED,
     BackupError,
@@ -57,7 +57,8 @@ def last_slot(now: datetime) -> datetime:
 
 async def send_backup(
     bot: Bot, config: Settings, calendar: Calendar, caption: str | None = None
-) -> None:
+) -> datetime:
+    """Send the backup file to the owner; returns when it was made."""
     now = now_local(config.timezone)
     path = database_path(config.database_url)
     content, info = await asyncio.to_thread(make_backup, path, now, __version__)
@@ -67,6 +68,7 @@ async def send_backup(
     )
     document = BufferedInputFile(content, filename=f"vira-backup-{stamp}.zip")
     await bot.send_document(config.owner_id, document, caption=text)
+    return now
 
 
 async def render_backup(settings_service: SettingsService) -> tuple[str, InlineKeyboardMarkup]:
@@ -89,10 +91,11 @@ async def _edit(message: Message, text: str, markup: InlineKeyboardMarkup | None
 
 async def _send_now(bot: Bot, config: Settings, settings_service: SettingsService) -> bool:
     try:
-        await send_backup(bot, config, await settings_service.get_calendar())
+        sent = await send_backup(bot, config, await settings_service.get_calendar())
     except (BackupError, OSError, sqlite3.Error):
         logger.exception("Backup failed")
         return False
+    await settings_service.mark_backup_sent(sent)
     return True
 
 
@@ -202,7 +205,7 @@ async def restore(
         info = await asyncio.to_thread(
             restore_backup, data, database_path(config.database_url), known_revisions()
         )
-        await asyncio.to_thread(run_migrations, config.database_url)  # an older backup → today
+        await asyncio.to_thread(migrate_in_subprocess, config.database_url)  # older → today
     except BackupError as exc:
         await query.answer(texts.RESTORE_INVALID.format(reason=exc.reason), show_alert=True)
         return

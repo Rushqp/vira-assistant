@@ -193,6 +193,12 @@ follow-up messages faster through prompt caching. `scripts/eval_agent.py` measur
 latency of any configured provider/model on a fixed set of Persian/English cases, so profile
 defaults can be benchmarked on the real server.
 
+The system prompt and the 23 tool definitions take about 5k tokens, more than Ollama's default
+context on a CPU (4k), which would cut off the start of the prompt. `docker-compose.yml` therefore
+gives Ollama an 8k context (`OLLAMA_CONTEXT_LENGTH`) with flash attention and a q8_0 cache: about
+0.6 GB of RAM with `qwen3:4b` / `qwen3:8b`, as much as the default 4k context with a full-precision
+cache.
+
 ## 9. Reliability
 
 - Model errors (connection, timeout, 429, 5xx, invalid key, unknown model, empty response) → the

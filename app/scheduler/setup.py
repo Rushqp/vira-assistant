@@ -8,13 +8,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings
 from app.scheduler.jobs import send_daily_digests, send_due_reminders
+from app.stt.chain import SpeechChain
 
 CHECK_EVERY_SECONDS = 20
 DIGESTS_EVERY_SECONDS = 30
 
 
 def create_scheduler(
-    bot: Bot, sessionmaker: async_sessionmaker[AsyncSession], config: Settings
+    bot: Bot,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    config: Settings,
+    stt: SpeechChain | None = None,
 ) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone=config.timezone)
     args = [bot, sessionmaker, config]
@@ -40,4 +44,8 @@ def create_scheduler(
         coalesce=True,
         next_run_time=datetime.now(config.timezone),
     )
+    if stt is not None:  # an unused local Whisper model leaves RAM after a while
+        scheduler.add_job(
+            stt.release_idle, "interval", seconds=60, id="release_idle_models", coalesce=True
+        )
     return scheduler

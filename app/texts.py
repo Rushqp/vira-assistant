@@ -25,6 +25,7 @@ COMMANDS: dict[str, str] = {
     "new": "Start a new chat",
     "model": "Choose the AI model",
     "chats": "Continue a previous chat",
+    "status": "Bot status: models, memory, last backup",
     "cancel": "Cancel the current action",
     "backup": "Get a database backup",
 }
@@ -62,6 +63,7 @@ HELP = (
     "/new — start a new chat\n"
     "/chats — continue a previous chat\n"
     "/model — choose the AI model\n"
+    "/status — bot status (models, memory, last backup)\n"
     "/cancel — cancel the current action\n"
     "/backup — get a database backup\n"
     "/help — this message"
@@ -243,7 +245,7 @@ REPORT_VS_PREVIOUS = " ({arrow} {percent}% vs {previous})"
 REPORT_VS_ZERO = " (nothing in the previous period)"
 REPORT_AVERAGE = "Daily average: {amount}"
 REPORT_CATEGORY = "{emoji} {name} {bar} {percent}% · {amount}"
-REPORT_LARGEST = "🔝 Largest: {description} — {amount}"
+REPORT_LARGEST = "🔝 Largest: {amount} — {description}"  # amount first: Persian text would split it
 REPORT_ITEMS = "<b>Expenses</b>"
 REPORT_ITEM = "{n}. {emoji} {description}{quantity} — {amount}"
 REPORT_MORE = "… and {count} more"
@@ -471,6 +473,28 @@ EXPORT_CAPTION_REMINDERS = "⏰ <b>{title}</b>\n{count} reminders"
 EXPORT_CAPTION_TABLE = "📄 <b>{title}</b>"
 EXPORT_EMPTY = "No expenses in that period, so there is no file to send."
 EXPENSE_COUNT = {"one": "1 expense", "many": "{count} expenses"}
+
+# --- /status ---
+STATUS_TITLE = "📊 <b>Vira {version}</b> · running for {uptime}"
+STATUS_AI = "🤖 AI: <b>{model}</b>{paused}"
+STATUS_AI_PAUSED = " · {count} paused"
+STATUS_AI_NONE = "🤖 AI: none (basic mode)"
+STATUS_VOICE = "🎙 Voice: {engines}"
+STATUS_MEMORY = "💾 Memory: <b>{memory}</b>{whisper}"
+STATUS_WHISPER = " · local Whisper loaded"
+STATUS_STORAGE = "🗄 Database: <b>{db}</b> · free disk: <b>{free}</b>"
+STATUS_DATA = "📦 {expenses} expenses · {reminders} reminders · {todos} open to-dos · {notes} notes"
+STATUS_BACKUP = "💾 Last backup: {when}"
+STATUS_BACKUP_NEVER = "never (send /backup)"
+STATUS_ERRORS = "⚠️ Errors since the start: {count}"
+STATUS_UNKNOWN = "—"
+
+# --- Unexpected errors (app/bot/errors.py) ---
+ERROR_REPORT = (
+    "⚠️ <b>Something went wrong</b> ({where}):\n<code>{error}</code>\n"
+    "<i>The details are in the log. Please try again; if it keeps happening, report it.</i>"
+)
+ERROR_ALERT = "⚠️ Something went wrong; the details were sent to the chat."
 
 # --- Settings ---
 SETTINGS = (

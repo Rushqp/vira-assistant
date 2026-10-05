@@ -14,6 +14,7 @@ from app.bot.handlers import (
     reports,
     settings,
     start,
+    status,
     todos,
 )
 from app.config import Settings
@@ -47,6 +48,7 @@ def detach_routers():
     for module in (
         ai_models,
         start,
+        status,
         settings,
         categories,
         notes,

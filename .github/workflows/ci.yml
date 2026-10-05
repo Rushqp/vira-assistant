@@ -21,8 +21,8 @@ jobs:
         run: ruff check .
       - name: Ruff format
         run: ruff format --check .
-      - name: Tests
-        run: pytest -q
+      - name: Tests (with coverage, at least 90 %)
+        run: pytest -q --cov --cov-report=term
 
   docker:
     runs-on: ubuntu-latest

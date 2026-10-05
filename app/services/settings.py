@@ -1,6 +1,6 @@
 """User settings stored in the `settings` key/value table."""
 
-from datetime import date, time
+from datetime import date, datetime, time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ KEY_NIGHTLY_LAST = "nightly_report_last"  # ISO date of the last nightly report 
 NIGHTLY_EARLIEST = time(12, 0)  # the nightly report sums up the day: 12:00–23:59
 KEY_BACKUP = "weekly_backup"  # "on" | "off"
 KEY_BACKUP_LAST = "weekly_backup_last"  # ISO date of the last weekly backup slot
+KEY_BACKUP_SENT = "backup_sent_at"  # ISO time (with its offset) of the last backup file sent
 KEY_AI_MODEL = "ai_model"  # "auto" or "provider|model"
 
 
@@ -140,3 +141,10 @@ class SettingsService:
 
     async def mark_backup(self, day: date) -> None:
         await self.set(KEY_BACKUP_LAST, day.isoformat())
+
+    async def backup_sent_at(self) -> datetime | None:
+        value = await self.get(KEY_BACKUP_SENT)
+        return datetime.fromisoformat(value) if value else None
+
+    async def mark_backup_sent(self, when: datetime) -> None:
+        await self.set(KEY_BACKUP_SENT, when.isoformat())

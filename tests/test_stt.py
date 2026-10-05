@@ -146,7 +146,7 @@ async def test_local_whisper_loads_once_and_retries_persian():
     loads = []
     whisper = FakeWhisper(("salam", "ar"), ("سلام", "fa"), ("hello", "en"))
 
-    def loader(model, root):
+    def loader(model, root, proxy=None):
         loads.append((model, root))
         return whisper
 
@@ -157,7 +157,7 @@ async def test_local_whisper_loads_once_and_retries_persian():
 
 
 async def test_local_whisper_not_installed():
-    def loader(model, root):
+    def loader(model, root, proxy=None):
         raise ImportError("ctranslate2")
 
     with pytest.raises(LLMError) as error:

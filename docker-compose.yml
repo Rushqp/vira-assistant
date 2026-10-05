@@ -8,12 +8,22 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-} # optional PyPI mirror (see .env.example)
     image: vira-assistant:latest
     container_name: vira-bot
     env_file: .env
     volumes:
       - ./data:/app/data
+    extra_hosts: # a proxy running on this server: socks5://host.docker.internal:<port>
+      - host.docker.internal:host-gateway
     restart: unless-stopped
+    healthcheck: # the bot beats every 30 s; a stuck bot also restarts itself (app/health.py)
+      test: ["CMD", "python", "-m", "app.health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
     depends_on:
       ollama-init:
         condition: service_completed_successfully
@@ -30,6 +40,14 @@ services:
       OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m} # how long the model stays in RAM after use
       OLLAMA_NUM_PARALLEL: 1 # single user: one request at a time saves memory
       OLLAMA_MAX_LOADED_MODELS: 1
+      # The agent's instructions and tools take ~5k tokens; Ollama's CPU default is 4k (the start
+      # of the prompt would be cut). A q8_0 cache keeps the 8k context in about half the memory.
+      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-8192}
+      OLLAMA_FLASH_ATTENTION: 1
+      OLLAMA_KV_CACHE_TYPE: q8_0
+      HTTPS_PROXY: ${API_PROXY:-} # model downloads through API_PROXY (e.g. a server in Iran)
+    extra_hosts:
+      - host.docker.internal:host-gateway
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s

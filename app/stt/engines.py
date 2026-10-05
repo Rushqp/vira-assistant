@@ -6,20 +6,26 @@ a `Transcription`, and raises `LLMError` (same kinds as the AI models) when it c
 
 import asyncio
 import base64
+import gc
+import os
+import time
 import wave
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
 from typing import Any
 
 import openai
+from loguru import logger
 
-from app.llm.client import LLMError, strip_think, translate_error
+from app.llm.client import LLMError, proxied_http_client, strip_think, translate_error
 from app.llm.models import PROVIDER_NAMES, model_name
 
 GROQ_URL = "https://api.groq.com/openai/v1"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 API_TIMEOUT = 60  # seconds
 GEMINI_MAX_SECONDS = 360  # inline audio must stay under the request size limit (~20 MB)
+IDLE_RELEASE = 600  # seconds: an unused local Whisper model leaves RAM
 SAMPLE_RATE = 16_000
 
 # Whisper sometimes hears short Persian messages as Arabic or Urdu: those are retried as Persian.
@@ -113,10 +119,20 @@ def engine_label(name: str, model: str) -> str:
 class GroqWhisper(_Engine):
     name = "groq"
 
-    def __init__(self, api_key: str, model: str = "whisper-large-v3", client: Any = None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "whisper-large-v3",
+        client: Any = None,
+        proxy: str | None = None,
+    ) -> None:
         self.model = model
         self._client = client or openai.AsyncOpenAI(
-            base_url=GROQ_URL, api_key=api_key, timeout=API_TIMEOUT, max_retries=0
+            base_url=GROQ_URL,
+            api_key=api_key,
+            timeout=API_TIMEOUT,
+            max_retries=0,
+            http_client=proxied_http_client(proxy),
         )
 
     async def transcribe(self, audio: Audio) -> Transcription:
@@ -152,10 +168,16 @@ class GroqWhisper(_Engine):
 class GeminiAudio(_Engine):
     name = "gemini"
 
-    def __init__(self, api_key: str, model: str, client: Any = None) -> None:
+    def __init__(
+        self, api_key: str, model: str, client: Any = None, proxy: str | None = None
+    ) -> None:
         self.model = model
         self._client = client or openai.AsyncOpenAI(
-            base_url=GEMINI_URL, api_key=api_key, timeout=API_TIMEOUT, max_retries=0
+            base_url=GEMINI_URL,
+            api_key=api_key,
+            timeout=API_TIMEOUT,
+            max_retries=0,
+            http_client=proxied_http_client(proxy),
         )
 
     def accepts(self, audio: Audio) -> bool:
@@ -191,37 +213,75 @@ class GeminiAudio(_Engine):
 # --- faster-whisper on the CPU ---
 
 
-def load_faster_whisper(model: str, download_root: str) -> Any:
-    """Imported only when needed: heavy, with native libraries (the model downloads once)."""
+def load_faster_whisper(model: str, download_root: str, proxy: str | None = None) -> Any:
+    """Imported only when needed: heavy, with native libraries (the model downloads once).
+
+    The download (Hugging Face, over HTTPS) honours HTTPS_PROXY, set here from API_PROXY. Only
+    HTTPS: the local Ollama (plain HTTP) must never go through the proxy, also for a client
+    created later (another local model chosen in 🤖 AI model)."""
     from faster_whisper import WhisperModel
 
+    if proxy:
+        os.environ.setdefault("HTTPS_PROXY", proxy)
     return WhisperModel(model, device="cpu", compute_type="int8", download_root=download_root)
 
 
 class LocalWhisper(_Engine):
+    """Loaded on first use; released from RAM after `IDLE_RELEASE` seconds without use."""
+
     name = "local"
 
-    def __init__(self, model: str, download_root: str, loader=load_faster_whisper) -> None:
+    def __init__(
+        self,
+        model: str,
+        download_root: str,
+        loader=load_faster_whisper,
+        clock: Callable[[], float] = time.monotonic,
+        proxy: str | None = None,
+    ) -> None:
         self.model = model
+        self._proxy = proxy
         self._download_root = download_root
         self._loader = loader
+        self._clock = clock
         self._whisper: Any = None
         self._lock = asyncio.Lock()
+        self._busy = 0
+        self._last_used = 0.0
+
+    @property
+    def loaded(self) -> bool:
+        return self._whisper is not None
 
     async def transcribe(self, audio: Audio) -> Transcription:
-        whisper = await self._get()
+        self._busy += 1
         try:
+            whisper = await self._get()
             text, language = await asyncio.to_thread(self._run, whisper, audio.data)
+        except LLMError:
+            raise
         except Exception as exc:  # decoding or inference failed
             raise LLMError("failed", f"local Whisper: {exc}") from exc
+        finally:
+            self._busy -= 1
+            self._last_used = self._clock()
         return Transcription(text, language, self.label)
+
+    def release_if_idle(self, idle: float = IDLE_RELEASE) -> bool:
+        """Free the model's RAM (0.5–1.6 GB) when it hasn't been used for `idle` seconds."""
+        if self._whisper is None or self._busy or self._clock() - self._last_used < idle:
+            return False
+        self._whisper = None
+        gc.collect()
+        logger.info("Local Whisper {} released from memory (unused)", self.model)
+        return True
 
     async def _get(self) -> Any:
         async with self._lock:
             if self._whisper is None:
                 try:
                     self._whisper = await asyncio.to_thread(
-                        self._loader, self.model, self._download_root
+                        self._loader, self.model, self._download_root, self._proxy
                     )
                 except (ImportError, ValueError) as exc:  # not installed / unknown model
                     raise LLMError("model_missing", f"local Whisper: {exc}") from exc

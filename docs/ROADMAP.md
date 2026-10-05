@@ -388,11 +388,17 @@ TELEGRAM_PROXY=             # optional: socks5://host:port
 | **v0.7.0** | Notes (tags, search, voice notes with a summary, pin), to-dos (daily, carried over), backup (weekly + restore) | All menu buttons functional |
 | **v1.0.0** | Full test coverage, memory optimization, README, INSTALL guide, screenshots | Clean-server install using only the README |
 
+All versions up to **v1.0.0** are released (tags and GitHub Releases; details in `CHANGELOG.md`).
+
 ---
 
 ## 14. Open Items
 
 1. ~~Final rule for interpreting colloquial "X toman" amounts~~ — decided in v0.4: always ask
-2. Publish image to GHCR or build locally only
-3. License (default MIT)
-4. Final model per profile after benchmarking on real hardware
+2. ~~Publish image to GHCR or build locally only~~ — decided: built locally (and in CI) only
+3. ~~License~~ — MIT
+4. Final model per profile after benchmarking on real hardware: the local agent (with the 8k
+   context of v1.0) still needs measuring on real 4 GB / 8 GB servers with `scripts/eval_agent.py`
+5. Shorter tool definitions for local models: the agent's instructions and 23 tools take about
+   5k tokens, a lot for a small CPU model
+6. A smaller image for `remote` / `lite` without the local voice libraries (about 370 MB of disk)

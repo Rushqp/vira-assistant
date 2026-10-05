@@ -7,7 +7,7 @@
 
 [English](#english) · [فارسی](#فارسی)
 
-![version](https://img.shields.io/badge/version-0.7.0-blue)
+![version](https://img.shields.io/badge/version-1.0.0-blue)
 ![python](https://img.shields.io/badge/python-3.12-3776AB)
 ![license](https://img.shields.io/badge/license-MIT-green)
 [![CI](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/Rushqp/vira-assistant/actions/workflows/ci.yml)
@@ -45,6 +45,17 @@ cancel reminders, reports, …). The app checks every tool call with determinist
 parsers (Jalali dates, «هزار / میلیون» amounts) before acting. Reminders and the morning briefing
 never depend on the AI. Design: [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md).
 
+### Screenshots
+
+| Just talk | Reports and Excel |
+|:---:|:---:|
+| <img src="docs/screenshots/chat.png" width="280" alt="Three expenses and a reminder from two messages"> | <img src="docs/screenshots/reports.png" width="280" alt="A monthly report and its Excel file"> |
+| **To-dos** | **Voice notes** |
+| <img src="docs/screenshots/todos.png" width="280" alt="Today's to-do list, ticked by a message"> | <img src="docs/screenshots/notes.png" width="280" alt="A voice message saved as a note, then found again"> |
+
+<sub>Real bot messages with sample data, drawn as a Telegram chat by
+[`scripts/screenshots.py`](scripts/screenshots.py).</sub>
+
 ### Status
 
 | Version | Scope | State |
@@ -56,44 +67,39 @@ never depend on the AI. Design: [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md).
 | **v0.5.0** | **Excel files from the chat** (expenses, reminders, any table), nightly report, briefing and report times in Settings | ✅ Done |
 | **v0.6.0** | **Voice messages and audio files** → text (free Groq Whisper / Gemini, local faster-whisper as backup), handled like typed text | ✅ Done |
 | **v0.7.0** | **To-dos** (daily list, unfinished ones carry over), **notes** (tags, search, voice notes with a summary, pin), **backup** (weekly + restore) — every menu button works | ✅ Done |
-| v1.0.0 | Full tests, optimization, install guide | |
+| **v1.0.0** | **One-command install** (also for servers in Iran: proxies and mirrors), `/status`, error reports in Telegram, health check and self-restart, lower memory use, 90%+ test coverage, install guide | ✅ Done |
 
 The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ### Quick start
 
-**Requirements:** Docker with Docker Compose, a Telegram bot token, and your numeric Telegram ID.
+You need a Linux server, a bot token from [@BotFather](https://t.me/BotFather), your numeric
+Telegram ID from [@userinfobot](https://t.me/userinfobot) and, recommended, a free AI key:
+[Google AI Studio](https://aistudio.google.com/apikey) (Gemini) and/or
+[Groq](https://console.groq.com/keys) (more in [AI models](#ai-models); several keys = automatic
+failover). Then, on the server:
 
-1. Create a bot with [@BotFather](https://t.me/BotFather) and copy the token.
-2. Get your numeric user ID from [@userinfobot](https://t.me/userinfobot).
-3. **Recommended:** get a free AI key, so Vira is smart and fast even on a small server:
-   [Google AI Studio](https://aistudio.google.com/apikey) (Gemini) and/or
-   [Groq](https://console.groq.com/keys); more free options are in [AI models](#ai-models).
-   Several keys = automatic failover.
-4. Clone and configure:
+```bash
+curl -fsSL https://raw.githubusercontent.com/Rushqp/vira-assistant/main/install.sh | bash
+```
 
-   ```bash
-   git clone https://github.com/Rushqp/vira-assistant.git
-   cd vira-assistant
-   cp .env.example .env      # set BOT_TOKEN, OWNER_ID and GEMINI_API_KEY / GROQ_API_KEY
-   ```
+The installer installs Docker if needed, asks a few questions (it suggests a profile from your
+RAM), writes `.env` and starts Vira. Open your bot in Telegram and send `/start`.
 
-5. Start it:
+📦 **Step-by-step guide:** choosing a profile, installing by hand, **servers in Iran** (proxies and
+mirrors), daily care and troubleshooting: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
-   ```bash
-   docker compose up -d --build
-   docker compose logs -f bot
-   ```
+Already have Docker? By hand:
 
-6. Open your bot in Telegram and send `/start`.
-
-On the first start, the `ollama-init` container downloads the local model for your profile (the local
-fallback). Follow it with `docker compose logs -f ollama-init`. With `PROFILE=remote` and
-`COMPOSE_PROFILES=` (empty) no local model is used at all.
+```bash
+git clone https://github.com/Rushqp/vira-assistant.git && cd vira-assistant
+cp .env.example .env           # BOT_TOKEN, OWNER_ID, PROFILE, an API key (remote: COMPOSE_PROFILES=)
+docker compose up -d --build   # with a local profile, the first start downloads the model
+```
 
 ### Updating
 
-On the server, in the project folder:
+Run the installer again, or on the server, in the project folder:
 
 ```bash
 git pull                       # the latest released version (branch main)
@@ -191,13 +197,25 @@ All of these have a free tier. Add any of the keys to `.env` (more keys = more b
 - 🤖 **AI model** (⚙️ Settings or `/model`): see which models are ready and choose the one that
   answers first.
 
+### Keeping an eye on it
+
+- **`/status`** shows the version, how long Vira has been running, the AI model answering now and
+  the paused ones, the voice engine, memory use, how much data you have, the database size, the
+  last backup and the errors since the start.
+- **Error reports:** when a message, a button or a scheduled job fails, Vira sends you a short ⚠️
+  report in Telegram (at most one every 10 minutes; details in the log), and a button that fails
+  shows an alert instead of doing nothing.
+- **Health check:** the bot writes a heartbeat every 30 seconds. `docker compose ps` shows it as
+  `healthy`, and a bot that hangs for 5 minutes restarts by itself.
+
 ### Configuration (`.env`)
 
 | Variable | Default | Description |
 |---|---|---|
 | `BOT_TOKEN` | — | Bot token from @BotFather (**required**) |
 | `OWNER_ID` | — | Your Telegram user ID. All other users are ignored (**required**) |
-| `TELEGRAM_PROXY` | empty | Optional proxy, e.g. `socks5://host:port` |
+| `TELEGRAM_PROXY` | empty | Proxy for Telegram, only where it is blocked: `socks5://host:port`, `http://host:port` |
+| `API_PROXY` | empty | Proxy for the AI and speech APIs and for local model downloads (not for the local Ollama), e.g. on a server in Iran |
 | `TZ` | `Asia/Tehran` | Timezone used for display and scheduling |
 | `DEFAULT_CALENDAR` | `jalali` | `jalali` or `gregorian` (can be changed in Settings) |
 | `CURRENCY` | `toman` | `toman` or `rial` |
@@ -217,6 +235,7 @@ All of these have a free tier. Add any of the keys to `.env` (more keys = more b
 | `CHAT_MEMORY` | `10` | How many previous messages the assistant sees (0–50) |
 | `CHAT_KEEP` | `20` | How many previous chats are kept in 🗂 Chats |
 | `OLLAMA_KEEP_ALIVE` | `30m` | How long the local model stays in RAM after use (`-1` = forever) |
+| `OLLAMA_CONTEXT_LENGTH` | `8192` | Context of the local model in tokens (the agent needs about 5k) |
 | `STT_ENABLED` | `true` | Voice messages and audio files are transcribed |
 | `STT_PROVIDERS` | `groq,gemini,local` | Order of the speech-to-text engines; ones without a key or model are skipped |
 | `GROQ_STT_MODEL` | `whisper-large-v3` | Groq Whisper model (or `whisper-large-v3-turbo`) |
@@ -225,15 +244,21 @@ All of these have a free tier. Add any of the keys to `.env` (more keys = more b
 | `MORNING_BRIEFING_TIME` | `08:00` | Default time of the morning briefing (change it in ⚙️ Settings) |
 | `DAILY_REPORT_TIME` | `22:00` | Default time of the nightly report (change it in ⚙️ Settings) |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` … |
+| `PIP_INDEX_URL` | empty | PyPI mirror for building the image, only where pypi.org is blocked |
 
 **Hardware profiles** (the free APIs come first in every profile when a key is set)
 
-| Profile | RAM | Local model | Local Whisper (voice backup) | Without an API key |
+| Profile | Server RAM | Local model (RAM while loaded) | Local Whisper, voice backup (RAM while transcribing) | Without an API key |
 |---|---|---|---|---|
-| `lite` | 2 GB | `gemma3:1b` (chat only) | none | rule-based understanding + local chat, no voice |
-| `standard` | 4 GB | `qwen3:4b` (agent) | `small` | local agent, slower on CPU |
-| `full` | 8 GB+ | `qwen3:8b` (agent) | `large-v3-turbo` | local agent |
-| `remote` | — | none | none | needs an API key or `LLM_MODEL` |
+| `remote` | 1 GB+ | none | none | needs an API key or `LLM_MODEL` |
+| `lite` | 2 GB | `gemma3:1b`, chat only (≈ 1 GB) | none | rule-based understanding + local chat, no voice |
+| `standard` | 4 GB | `qwen3:4b`, agent (≈ 3.3 GB) | `small` (up to ≈ 1.5 GB) | local agent, slower on CPU |
+| `full` | 8 GB+ | `qwen3:8b`, agent (≈ 6 GB) | `large-v3-turbo` (≈ 2.5 GB) | local agent |
+
+The bot itself uses **about 210 MB of RAM** (measured idle in Docker); the model sizes are
+approximate. Local models take RAM only while they are used: Ollama unloads its model after
+`OLLAMA_KEEP_ALIVE` (30 min) and Whisper leaves memory after 10 idle minutes, so with API keys they
+are rarely loaded at all. Disk space per profile: [docs/INSTALL.md](docs/INSTALL.md).
 
 Measure accuracy and speed of your models on your own server:
 `docker compose exec bot python scripts/eval_agent.py` (`--all` = every model of the menu).
@@ -243,6 +268,7 @@ Measure accuracy and speed of your models on your own server:
 ```
 app/
 ├── main.py            # Entry point: logging → migrations → scheduler → bot polling
+├── health.py          # Heartbeat + watchdog: Docker health check, restart when the bot hangs
 ├── config.py          # All settings from .env (pydantic-settings) + hardware profiles
 ├── texts.py           # Every user-facing string (edit wording here only)
 ├── agent/             # The brain: an AI agent with typed tools
@@ -259,10 +285,11 @@ app/
 ├── stt/               # Voice → text: engines.py (Groq Whisper, Gemini, local
 │                      #   faster-whisper), chain.py (order, failover)
 ├── bot/               # Telegram layer, no business logic
-│   ├── handlers/      #   assistant (free text → agent), chats, settings, categories, ai_models
-│   │                  #   (🤖 AI model), backup, todos, notes, reminders, expenses, reports
-│   │                  #   (buttons + rule-based fallback), fallback
+│   ├── handlers/      #   assistant (free text → agent), status (/status), chats, settings,
+│   │                  #   categories, ai_models (🤖 AI model), backup, todos, notes, reminders,
+│   │                  #   expenses, reports (buttons + rule-based fallback), fallback
 │   ├── agent_ui.py    #   result cards with ↩️ Undo / ✏️ Edit, model switch notices
+│   ├── errors.py      #   error reports to the owner (handlers, buttons, scheduled jobs)
 │   ├── keyboards/     #   reply.py = main menu, inline.py = buttons under messages
 │   ├── middlewares/   #   owner_only, logging, db (session + services), voice (voice → text
 │   │                  #   before routing), menu_reset, notices
@@ -276,14 +303,18 @@ app/
 ├── services/          # Business logic, independent of Telegram: reminders, expenses,
 │                      #   reports, export (Excel files), todos, notes, backup, chat history,
 │                      #   settings, calculator
-├── scheduler/         # due reminders, morning briefing, nightly report, weekly backup
-├── db/                # models.py = tables, session.py = engine + migrations
+├── scheduler/         # due reminders, morning briefing, nightly report, weekly backup,
+│                      #   releasing an unused local Whisper
+├── db/                # models.py = tables, session.py = engine + migrations, migrate.py =
+│                      #   migrations in a child process (keeps Alembic out of the bot's RAM)
 └── utils/             # Jalali / Gregorian formatting, Markdown → HTML, money
 scripts/eval_agent.py  # accuracy / latency of each configured model on real Persian cases
+scripts/screenshots.py # the README screenshots: real bot messages drawn as a Telegram chat
+install.sh             # one-command installer: Docker, the .env questions, start / update
 migrations/            # Alembic migrations (one file per schema change)
 tests/                 # pytest suite (no network or real model needed)
 docker/                # Dockerfile, entrypoint, ollama-init.sh (pulls the profile model)
-docs/                  # Roadmap, agent design
+docs/                  # install guide, roadmap, agent design, screenshots
 ```
 
 How a message flows: **Telegram → middlewares → `handlers/assistant.py` → `agent/core.py` ↔
@@ -300,8 +331,10 @@ cp .env.example .env               # set BOT_TOKEN, OWNER_ID (and an API key)
 python -m app.main                 # run the bot locally (DB in ./data)
 
 pytest                             # tests
+pytest --cov                       # tests + coverage (CI fails below 90%)
 ruff check . && ruff format .      # lint + format
 python scripts/eval_agent.py       # how well the configured models understand real messages
+python scripts/screenshots.py      # redraw docs/screenshots (needs Edge or Chrome)
 alembic revision -m "describe"     # new migration
 ```
 
@@ -346,6 +379,17 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 (تاریخ شمسی، مبلغ‌های «هزار / میلیون») بررسی می‌کند. یادآورها و خلاصه صبحگاهی هیچ وقت به هوش مصنوعی
 وابسته نیستند. طراحی: [docs/AGENT_DESIGN.md](docs/AGENT_DESIGN.md).
 
+### تصویرها
+
+| فقط حرف بزنید | گزارش و اکسل |
+|:---:|:---:|
+| <img src="docs/screenshots/chat.png" width="280" alt="سه هزینه و یک یادآور از دو پیام"> | <img src="docs/screenshots/reports.png" width="280" alt="گزارش ماه و فایل اکسل آن"> |
+| **کارهای روزانه** | **یادداشت صوتی** |
+| <img src="docs/screenshots/todos.png" width="280" alt="لیست کارهای امروز و تیک خوردن با یک پیام"> | <img src="docs/screenshots/notes.png" width="280" alt="پیام صوتی که یادداشت می‌شود و بعد پیدا می‌شود"> |
+
+<sub>پیام‌های واقعی ربات با اطلاعات نمونه که با [`scripts/screenshots.py`](scripts/screenshots.py) به شکل
+چت تلگرام کشیده شده‌اند.</sub>
+
 ### وضعیت پروژه
 
 | نسخه | محتوا | وضعیت |
@@ -357,55 +401,46 @@ a GitHub Release. See [CHANGELOG.md](CHANGELOG.md).
 | **v0.5.0** | **فایل اکسل از داخل چت** (هزینه‌ها، یادآورها، هر جدولی)، گزارش شبانه، تنظیم ساعت خلاصه صبحگاهی و گزارش شبانه | ✅ انجام شد |
 | **v0.6.0** | **پیام صوتی و فایل صوتی** ← متن (Groq Whisper و Gemini رایگان، faster-whisper لوکال به‌عنوان پشتیبان)، دقیقاً مثل پیام تایپی | ✅ انجام شد |
 | **v0.7.0** | **کارهای روزانه** (لیست هر روز، کارهای انجام‌نشده منتقل می‌شوند)، **یادداشت‌ها** (برچسب، جستجو، یادداشت صوتی با خلاصه، سنجاق)، **پشتیبان‌گیری** (هفتگی و بازگردانی)؛ همه دکمه‌های منو کار می‌کنند | ✅ انجام شد |
-| v1.0.0 | تست کامل، بهینه‌سازی، راهنمای نصب | |
+| **v1.0.0** | **نصب با یک دستور** (برای سرورهای داخل ایران هم: پراکسی و میرور)، `/status`، گزارش خطا در تلگرام، بررسی سلامت و ری‌استارت خودکار، مصرف رم کمتر، پوشش تست بالای ۹۰٪، راهنمای نصب | ✅ انجام شد |
 
 نقشه کامل پروژه در [docs/ROADMAP.md](docs/ROADMAP.md) است.
 
 ### راه‌اندازی سریع
 
-**پیش‌نیازها:** داکر و Docker Compose، توکن ربات تلگرام و شناسه عددی تلگرام شما.
-
-۱. با [@BotFather](https://t.me/BotFather) یک ربات بسازید و توکن آن را کپی کنید.
-
-۲. شناسه عددی خود را از [@userinfobot](https://t.me/userinfobot) بگیرید.
-
-۳. **پیشنهادی:** یک کلید رایگان هوش مصنوعی بگیرید تا ویرا حتی روی سرور کوچک هم باهوش و سریع باشد:
-[Google AI Studio](https://aistudio.google.com/apikey) (Gemini) و/یا [Groq](https://console.groq.com/keys)؛
-گزینه‌های رایگان دیگر در بخش «مدل‌های هوش مصنوعی» پایین‌تر آمده‌اند. چند کلید یعنی جایگزینی خودکار وقتی
-یکی در دسترس نیست.
-
-۴. پروژه را کلون و تنظیم کنید:
+یک سرور لینوکسی، توکن ربات از [@BotFather](https://t.me/BotFather)، شناسه عددی تلگرام از
+[@userinfobot](https://t.me/userinfobot) و (پیشنهادی) یک کلید رایگان هوش مصنوعی لازم دارید:
+[Google AI Studio](https://aistudio.google.com/apikey) (Gemini) و/یا [Groq](https://console.groq.com/keys)
+(گزینه‌های دیگر در بخش «مدل‌های هوش مصنوعی»؛ چند کلید یعنی جایگزینی خودکار). بعد روی سرور:
 
 </div>
 
 ```bash
-git clone https://github.com/Rushqp/vira-assistant.git
-cd vira-assistant
-cp .env.example .env      # BOT_TOKEN، OWNER_ID و GEMINI_API_KEY / GROQ_API_KEY را تنظیم کنید
+curl -fsSL https://raw.githubusercontent.com/Rushqp/vira-assistant/main/install.sh | bash
 ```
 
 <div dir="rtl">
 
-۵. اجرا کنید:
+نصب‌کننده اگر لازم باشد داکر را نصب می‌کند، چند سوال می‌پرسد (بر اساس رم سرور یک پروفایل پیشنهاد می‌دهد)،
+فایل `.env` را می‌نویسد و ویرا را اجرا می‌کند. ربات را در تلگرام باز کنید و `/start` را بفرستید.
+
+📦 **راهنمای قدم به قدم:** انتخاب پروفایل، نصب دستی، **سرور داخل ایران** (پراکسی و میرور)، نگهداری و رفع
+مشکل: **[docs/INSTALL.md](docs/INSTALL.md#فارسی)**
+
+داکر از قبل نصب است؟ نصب دستی:
 
 </div>
 
 ```bash
-docker compose up -d --build
-docker compose logs -f bot
+git clone https://github.com/Rushqp/vira-assistant.git && cd vira-assistant
+cp .env.example .env           # BOT_TOKEN، OWNER_ID، PROFILE و یک کلید API (برای remote: COMPOSE_PROFILES=)
+docker compose up -d --build   # با پروفایل لوکال، اولین اجرا مدل را دانلود می‌کند
 ```
 
 <div dir="rtl">
-
-۶. ربات را در تلگرام باز کنید و `/start` را بفرستید.
-
-در اولین اجرا، کانتینر `ollama-init` مدل لوکال پروفایل شما (پشتیبان) را دانلود می‌کند. پیشرفتش را با
-`docker compose logs -f ollama-init` ببینید. با `PROFILE=remote` و `COMPOSE_PROFILES` خالی، هیچ مدل
-لوکالی استفاده نمی‌شود.
 
 ### به‌روزرسانی
 
-روی سرور، داخل پوشه پروژه:
+نصب‌کننده را دوباره اجرا کنید، یا روی سرور داخل پوشه پروژه:
 
 </div>
 
@@ -505,13 +540,24 @@ docker compose logs -f bot     # بررسی بالا آمدن ربات (با Ctr
 - 🤖 **AI model** (در ⚙️ Settings یا با `/model`): وضعیت مدل‌ها را ببینید و مدلی را که اول جواب بدهد
   انتخاب کنید.
 
+### زیر نظر داشتن ربات
+
+- **`/status`** نسخه، مدت روشن بودن، مدلی که الان جواب می‌دهد و مدل‌های متوقف‌شده، موتور تبدیل صدا، مصرف
+  رم، مقدار اطلاعات شما، حجم دیتابیس، آخرین پشتیبان و تعداد خطاها از زمان اجرا را نشان می‌دهد.
+- **گزارش خطا:** وقتی یک پیام، یک دکمه یا یک کار زمان‌بندی‌شده خطا بدهد، ویرا یک گزارش کوتاه ⚠️ در تلگرام
+  برایتان می‌فرستد (حداکثر یکی در هر ۱۰ دقیقه؛ جزئیات در لاگ) و دکمه‌ای که خطا داده به‌جای هیچ کاری نکردن
+  یک پیغام نشان می‌دهد.
+- **بررسی سلامت:** ربات هر ۳۰ ثانیه یک علامت زنده بودن می‌نویسد. `docker compose ps` آن را `healthy` نشان
+  می‌دهد و رباتی که ۵ دقیقه گیر کند خودش ری‌استارت می‌شود.
+
 ### تنظیمات (`.env`)
 
 | متغیر | پیش‌فرض | توضیح |
 |---|---|---|
 | `BOT_TOKEN` | — | توکن ربات از BotFather (**الزامی**) |
 | `OWNER_ID` | — | شناسه تلگرام شما. پیام بقیه کاربران نادیده گرفته می‌شود (**الزامی**) |
-| `TELEGRAM_PROXY` | خالی | پراکسی اختیاری، مثل `socks5://host:port` |
+| `TELEGRAM_PROXY` | خالی | پراکسی تلگرام، فقط جایی که مسدود است: `socks5://host:port` یا `http://host:port` |
+| `API_PROXY` | خالی | پراکسی APIهای هوش مصنوعی و تبدیل صدا و دانلود مدل‌های لوکال (نه برای Ollama لوکال)، مثلاً برای سرور داخل ایران |
 | `TZ` | `Asia/Tehran` | منطقه زمانی |
 | `DEFAULT_CALENDAR` | `jalali` | `jalali` یا `gregorian` (در تنظیمات ربات هم قابل تغییر است) |
 | `CURRENCY` | `toman` | `toman` یا `rial` |
@@ -531,6 +577,7 @@ docker compose logs -f bot     # بررسی بالا آمدن ربات (با Ctr
 | `CHAT_MEMORY` | `10` | تعداد پیام‌های قبلی که دستیار می‌بیند (۰ تا ۵۰) |
 | `CHAT_KEEP` | `20` | تعداد گفتگوهای قبلی که در 🗂 Chats نگه داشته می‌شود |
 | `OLLAMA_KEEP_ALIVE` | `30m` | مدت ماندن مدل لوکال در رم بعد از آخرین پیام (`-1` یعنی همیشه) |
+| `OLLAMA_CONTEXT_LENGTH` | `8192` | طول متن قابل پردازش مدل لوکال به توکن (Agent حدود ۵ هزار لازم دارد) |
 | `STT_ENABLED` | `true` | تبدیل پیام صوتی و فایل صوتی به متن |
 | `STT_PROVIDERS` | `groq,gemini,local` | ترتیب سرویس‌های تبدیل صدا؛ سرویس‌های بدون کلید یا مدل رد می‌شوند |
 | `GROQ_STT_MODEL` | `whisper-large-v3` | مدل Whisper در Groq (یا `whisper-large-v3-turbo`) |
@@ -539,15 +586,21 @@ docker compose logs -f bot     # بررسی بالا آمدن ربات (با Ctr
 | `MORNING_BRIEFING_TIME` | `08:00` | ساعت پیش‌فرض خلاصه صبحگاهی (در ⚙️ Settings قابل تغییر) |
 | `DAILY_REPORT_TIME` | `22:00` | ساعت پیش‌فرض گزارش شبانه (در ⚙️ Settings قابل تغییر) |
 | `LOG_LEVEL` | `INFO` | سطح لاگ |
+| `PIP_INDEX_URL` | خالی | میرور PyPI برای ساخت ایمیج، فقط جایی که pypi.org مسدود است |
 
 **پروفایل‌های سخت‌افزاری** (در همه پروفایل‌ها، اگر کلید API باشد، سرویس‌های رایگان اول امتحان می‌شوند)
 
-| پروفایل | رم | مدل لوکال | Whisper لوکال (پشتیبان صدا) | بدون کلید API |
+| پروفایل | رم سرور | مدل لوکال (رم در زمان استفاده) | Whisper لوکال، پشتیبان صدا (رم هنگام تبدیل) | بدون کلید API |
 |---|---|---|---|---|
-| `lite` | ۲ گیگ | `gemma3:1b` (فقط چت) | ندارد | فهم قانون‌محور + چت لوکال، بدون پیام صوتی |
-| `standard` | ۴ گیگ | `qwen3:4b` (Agent) | `small` | Agent لوکال، کندتر روی CPU |
-| `full` | ۸ گیگ و بیشتر | `qwen3:8b` (Agent) | `large-v3-turbo` | Agent لوکال |
-| `remote` | — | ندارد | ندارد | کلید API یا `LLM_MODEL` لازم است |
+| `remote` | ۱ گیگ و بیشتر | ندارد | ندارد | کلید API یا `LLM_MODEL` لازم است |
+| `lite` | ۲ گیگ | `gemma3:1b`، فقط چت (حدود ۱ گیگ) | ندارد | فهم قانون‌محور + چت لوکال، بدون پیام صوتی |
+| `standard` | ۴ گیگ | `qwen3:4b`، Agent (حدود ۳٫۳ گیگ) | `small` (تا حدود ۱٫۵ گیگ) | Agent لوکال، کندتر روی CPU |
+| `full` | ۸ گیگ و بیشتر | `qwen3:8b`، Agent (حدود ۶ گیگ) | `large-v3-turbo` (حدود ۲٫۵ گیگ) | Agent لوکال |
+
+خود ربات **حدود ۲۱۰ مگابایت رم** مصرف می‌کند (اندازه‌گیری‌شده در داکر، در حالت بیکار)؛ اعداد مدل‌ها تقریبی
+هستند. مدل‌های لوکال فقط وقتی استفاده می‌شوند رم می‌گیرند: Ollama مدل را بعد از `OLLAMA_KEEP_ALIVE` (۳۰ دقیقه)
+از رم خارج می‌کند و Whisper بعد از ۱۰ دقیقه بیکاری؛ پس با کلید API به‌ندرت بارگذاری می‌شوند. فضای دیسک لازم
+برای هر پروفایل: [docs/INSTALL.md](docs/INSTALL.md#فارسی)
 
 دقت و سرعت مدل‌ها را روی سرور خودتان بسنجید: `docker compose exec bot python scripts/eval_agent.py`
 (با `--all` همه مدل‌های منو سنجیده می‌شوند)
@@ -555,6 +608,7 @@ docker compose logs -f bot     # بررسی بالا آمدن ربات (با Ctr
 ### نقشه سورس کد
 
 - `app/main.py`: نقطه شروع برنامه (لاگ، مایگریشن، زمان‌بند، اجرای ربات)
+- `app/health.py`: علامت زنده بودن و نگهبان (بررسی سلامت داکر و ری‌استارت وقتی ربات گیر کند)
 - `app/config.py`: همه تنظیمات `.env` و پروفایل‌های سخت‌افزاری
 - `app/texts.py`: همه متن‌هایی که کاربر می‌بیند (برای تغییر متن‌ها فقط همین فایل را ویرایش کنید)
 - `app/agent/`: مغز برنامه، یک Agent هوش مصنوعی با ابزارهای مشخص
@@ -570,19 +624,26 @@ docker compose logs -f bot     # بررسی بالا آمدن ربات (با Ctr
 - `app/stt/`: تبدیل صدا به متن؛ `engines.py` (Groq Whisper، Gemini و faster-whisper لوکال) و `chain.py`
   (ترتیب و جایگزینی خودکار)
 - `app/bot/`: لایه تلگرام، بدون منطق اصلی برنامه
-  - `handlers/`: `assistant.py` (پیام آزاد ← Agent)، چت‌های قبلی، تنظیمات، دسته‌ها، `ai_models.py`
-    (🤖 AI model)، پشتیبان‌گیری، کارهای روزانه، یادداشت‌ها، یادآورها، هزینه‌ها و گزارش‌ها (دکمه‌ها و روش
-    قانون‌محور پشتیبان) و پیام‌های ناشناخته
+  - `handlers/`: `assistant.py` (پیام آزاد ← Agent)، `status.py` (`/status`)، چت‌های قبلی، تنظیمات، دسته‌ها،
+    `ai_models.py` (🤖 AI model)، پشتیبان‌گیری، کارهای روزانه، یادداشت‌ها، یادآورها، هزینه‌ها و گزارش‌ها
+    (دکمه‌ها و روش قانون‌محور پشتیبان) و پیام‌های ناشناخته
   - `agent_ui.py`: کارت نتیجه‌ها با ↩️ برگشت / ✏️ ویرایش و اعلان‌های تعویض مدل
+  - `errors.py`: گزارش خطا به مالک ربات (پیام‌ها، دکمه‌ها و کارهای زمان‌بندی‌شده)
   - `keyboards/`، `middlewares/` (`voice.py` صدا را قبل از مسیریابی به متن تبدیل می‌کند و `notices.py`
     اعلان تعویض مدل را بعد از هر پیام می‌فرستد)، `views.py`، `streaming.py`، `states.py`
 - `app/core/`: ابزارهای دقیق زبانی بدون هوش مصنوعی: نرمال‌سازی متن، پیدا کردن ارجاع‌ها
   («تایم دکتر» ← یادآور دکتر) و پارسرهای تاریخ، مبلغ، یادآور و هزینه
 - `app/services/`: منطق اصلی برنامه، مستقل از تلگرام (یادآورها، هزینه‌ها، گزارش‌ها، ساخت فایل اکسل،
   کارهای روزانه، یادداشت‌ها، پشتیبان‌گیری، تاریخچه چت، تنظیمات)
-- `app/scheduler/`: ارسال یادآورها، خلاصه صبحگاهی، گزارش شبانه و پشتیبان هفتگی
-- `app/db/`، `app/utils/`، `migrations/`، `tests/`، `docker/`
+- `app/scheduler/`: ارسال یادآورها، خلاصه صبحگاهی، گزارش شبانه، پشتیبان هفتگی و خالی کردن رم از Whisper
+  بیکار
+- `app/db/`: جدول‌ها، اتصال دیتابیس و `migrate.py` (اجرای مایگریشن‌ها در یک پروسه جدا تا Alembic در رم ربات
+  نماند)
+- `app/utils/`، `migrations/`، `tests/`، `docker/`
 - `scripts/eval_agent.py`: سنجش دقت و سرعت هر مدل روی پیام‌های واقعی فارسی و انگلیسی
+- `scripts/screenshots.py`: ساخت تصویرهای README از پیام‌های واقعی ربات
+- `install.sh`: نصب‌کننده یک‌دستوری (داکر، سوال‌های `.env`، اجرا و به‌روزرسانی)
+- `docs/`: راهنمای نصب، نقشه پروژه، طراحی Agent و تصویرها
 
 مسیر هر پیام: **تلگرام ← میدل‌ورها ← `handlers/assistant.py` ← `agent/core.py` ↔ `llm/providers.py` ←
 `agent/tools/*` ← `services/*` ← دیتابیس** و نتیجه‌ها به صورت کارت از `bot/agent_ui.py` برمی‌گردند.
