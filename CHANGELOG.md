@@ -36,6 +36,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - Every main-menu button works now; the "coming soon" placeholders are gone
 - The agent is told how long a voice message was
 
+### Fixed
+- ⚙️ Settings → 🤖 AI model (and `/model`) did nothing when a local model was configured:
+  listing the local models crashed. The menu now also opens when that list can't be read
+
 ## [0.6.0] - 2026-10-05
 
 ### Added

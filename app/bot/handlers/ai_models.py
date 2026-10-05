@@ -14,6 +14,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from loguru import logger
 
 from app import texts
 from app.bot.keyboards.inline import AiCb, SettingsCb, ai_models_menu
@@ -35,6 +36,9 @@ async def render(
     try:
         local = await asyncio.wait_for(llm.local_models(), LOCAL_LIST_TIMEOUT)
     except TimeoutError:
+        local = []
+    except Exception:  # the list of pulled models is optional: never let it break the menu
+        logger.exception("Could not list the local models")
         local = []
     options = model_options(config, local)
     await state.update_data(ai_options=[list(option) for option in options])
@@ -93,10 +97,10 @@ async def show_menu(message: Message, state: FSMContext, llm: object, config: Se
 async def from_settings(
     query: CallbackQuery, state: FSMContext, llm: object, config: Settings
 ) -> None:
+    await query.answer()  # at once: listing the local models can take a moment
     text, markup = await render(llm, config, state)
     if isinstance(query.message, Message):
         await query.message.answer(text, reply_markup=markup)
-    await query.answer()
 
 
 @router.callback_query(AiCb.filter())

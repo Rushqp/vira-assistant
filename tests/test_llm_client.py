@@ -156,6 +156,17 @@ async def test_unreachable_server():
     await client.close()
 
 
+async def test_list_models(server):
+    """Regression: the 🤖 AI model menu did nothing because listing local models crashed."""
+    _, url = server
+    client = LLMClient(url, "key", "m", name="local")
+    assert await client.list_models() == ["qwen2.5:3b"]
+    await client.close()
+    unreachable = LLMClient(f"http://127.0.0.1:{_free_port()}/v1", "key", "m", timeout=2)
+    assert await unreachable.list_models() == []
+    await unreachable.close()
+
+
 async def test_check(server):
     _, url = server
     assert await LLMClient(url, "key", "qwen2.5:3b").check() is True

@@ -18,6 +18,7 @@ from app.llm.models import model_label
 # Plain dicts in OpenAI chat format: system / user / assistant (+ tool_calls) / tool.
 ChatMessage = dict[str, Any]
 ErrorKind = Literal["unreachable", "model_missing", "rate_limited", "auth", "failed"]
+LIST_TIMEOUT = 3  # seconds to list the models of an endpoint (for the 🤖 AI model menu)
 
 
 class LLMError(Exception):
@@ -298,7 +299,8 @@ class LLMClient:
     async def list_models(self) -> list[str]:
         """Model ids the endpoint offers ([] if it can't be listed)."""
         try:
-            return sorted(m.id.removeprefix("models/") async for m in self._client.models.list())
+            quick = self._client.with_options(max_retries=0, timeout=LIST_TIMEOUT)  # a menu waits
+            return sorted([m.id.removeprefix("models/") async for m in quick.models.list()])
         except openai.OpenAIError as exc:
             logger.info("Could not list models of {}: {}", self.name, exc)
             return []

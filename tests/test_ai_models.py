@@ -1,5 +1,7 @@
 """🤖 AI model menu (/model, ⚙️ Settings), model switch notices, and the saved choice."""
 
+from types import SimpleNamespace
+
 import pytest
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import EditMessageText
@@ -8,7 +10,7 @@ from pydantic import SecretStr
 from app import texts
 from app.bot.handlers import ai_models
 from app.bot.keyboards.inline import AiCb
-from app.llm.client import LLMError
+from app.llm.client import LLMClient, LLMError
 from app.llm.models import model_label
 from app.llm.providers import ProviderChain
 from app.main import apply_saved_model
@@ -146,6 +148,56 @@ async def test_any_model_of_a_provider_can_be_chosen(keyed, sessionmaker):
     assert [c.id for c in llm.clients][:2] == ["local:llama3.2:3b", "gemini:gemini-flash-latest"]
     await env.send("hello")
     assert env.session.sent[-1] == "answer from llama3.2:3b"
+
+
+class PulledModels:
+    """`models.list()` of an OpenAI-compatible client (Ollama's pulled models)."""
+
+    def __init__(self, names):
+        self.names = names
+
+    def list(self):
+        async def page():
+            for name in self.names:
+                yield SimpleNamespace(id=name)
+
+        return page()
+
+
+class FakeOpenAI:
+    def __init__(self, names):
+        self.models = PulledModels(names)
+
+    def with_options(self, **kwargs):
+        return self
+
+
+async def test_settings_button_opens_the_menu_with_a_real_local_client(keyed, sessionmaker):
+    """Regression: with a local model configured, 🤖 AI model in ⚙️ Settings did nothing."""
+    local = LLMClient("http://ollama:11434/v1", "ollama", "qwen3:4b", name="local")
+    local._client = FakeOpenAI(["qwen3:4b", "llama3.2:3b"])  # type: ignore[assignment]
+    llm = ProviderChain(
+        [ApiModel("gemini", "gemini-flash-latest"), local],  # type: ignore[list-item]
+        factory=lambda p, m: ApiModel(p, m),  # type: ignore[arg-type,return-value]
+    )
+    env = make_env(keyed, sessionmaker, llm)
+    await env.send(texts.BTN_SETTINGS)
+    await env.press(env.button(texts.BTN_AI_MODEL))
+    assert texts.AI_TITLE in env.session.sent[-1]
+    assert "llama3.2:3b (local)" in buttons(env)
+    await env.press(env.button("llama3.2:3b"))
+    assert llm.preference == ("local", "llama3.2:3b")
+
+
+async def test_menu_opens_even_if_the_local_list_fails(keyed, sessionmaker):
+    class Broken(ApiModel):
+        async def list_models(self):
+            raise RuntimeError("boom")
+
+    llm = ProviderChain([ApiModel("gemini", "gemini-flash-latest"), Broken("local", "qwen3:4b")])  # type: ignore[list-item]
+    env = make_env(keyed, sessionmaker, llm)
+    await env.send("/model")
+    assert texts.AI_TITLE in env.session.sent[-1] and "qwen3:4b (local)" in buttons(env)
 
 
 async def test_out_of_date_menu_is_refreshed(keyed, sessionmaker):
